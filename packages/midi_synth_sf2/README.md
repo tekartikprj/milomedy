@@ -68,12 +68,12 @@ dart run milomedy_midi_synth_sf2:midi_render --soundfont gm.sf2 [-o out.wav] [--
 ## Speed
 
 `dart run tool/benchmark.dart <file.sf2> <file.mid>` measures the real-time
-factor. On 2026-10-29, on an Apple silicon Mac, with `pop.mid` (110 s, 1025 notes)
-and a one-preset SoundFont:
+factor. On 2026-10-29, on an Apple silicon Mac, with `pop.mid` (110 s, 1025 notes),
+reverb and chorus on, in blocks of 128 frames:
 
-| Build | Blocks of 128 frames | Blocks of 2048 |
-|---|---|---|
-| VM (JIT) | 83x | 92x |
-| AOT | 95x | 95x |
-| dart2js (Chrome) | 75x | 78x |
-| dart2wasm (Chrome) | 29x | 29x |
+| Build | One-preset SoundFont (589 KB) | GeneralUser GS 2.0.3 (32 MB) | Reading GeneralUser GS |
+|---|---|---|---|
+| VM (JIT) | 83x | 58x | 116 ms |
+| AOT | 95x | 62x | 45 ms |
+| dart2js (Chrome) | 75x | 50x | 131 ms |
+| dart2wasm (Chrome) | 29x | 18x | 504 ms |
