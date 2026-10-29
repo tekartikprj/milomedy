@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metronome</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; }
+    #beat { font-size: 64px; margin: 16px 0; min-height: 80px; }
+    label { margin-right: 16px; }
+  </style>
+  <script defer src="main.dart.js"></script>
+</head>
+<body>
+  <h1>Metronome</h1>
+  <p>
+    <label>Tempo <input id="bpm" type="number" min="20" max="300" value="100"> bpm</label>
+    <label>Beats <input id="beats" type="number" min="1" max="12" value="4"></label>
+  </p>
+  <button id="play">Start</button>
+  <div id="beat"></div>
+</body>
+</html>

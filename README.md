@@ -1,8 +1,7 @@
 # milomedy
 
-Audio output packages for Dart and Flutter: send raw audio to a WAV file, the web,
-a phone or the desktop. They are the output layer of a MIDI player in progress;
-its engine and synths will be added here.
+The packages of a MIDI player in progress, for Dart and Flutter: a MIDI engine and
+synths in pure Dart, and audio outputs (a WAV file, the web, a phone, the desktop).
 
 Status: experimental, the APIs will change.
 
@@ -10,6 +9,8 @@ Status: experimental, the APIs will change.
 
 | Package | Path | Content |
 |---|---|---|
+| `tekartik_midi_engine` | `packages/midi_engine` | Plays a timeline of MIDI events on the audio clock: seek, loop, speed, transpose, one synth per track, a mixer, a player, a stream output and a Web Audio output, offline rendering to WAV, a metronome |
+| `tekartik_midi_synth` | `packages/midi_synth` | The `MidiSynth` interface and instruments written in Dart, with no asset: accordion reeds, a metronome click |
 | `tekartik_raw_audio` | `packages/raw_audio` | Raw audio output interface (16-bit PCM, feed callback), memory output, test tone generator |
 | `tekartik_raw_audio_wav` | `packages/raw_audio_wav` | Output to a WAV file |
 | `tekartik_raw_audio_web` | `packages/raw_audio_web` | Web Audio examples (no library yet) |

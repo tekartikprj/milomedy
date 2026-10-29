@@ -1,0 +1,32 @@
+name: tekartik_midi_engine
+description: >-
+  MIDI engine, pure Dart: plays a timeline of events on the audio clock
+  (each event at its frame, seek, loop, speed, transpose), one synth per
+  track, a mixer, the player that keeps an audio output fed, the outputs
+  (a raw stream, Web Audio), offline rendering to WAV and a metronome.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  tekartik_midi_synth:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_synth
+  web: ">=1.1.0"
+
+dev_dependencies:
+  build_runner: ">=2.15.0"
+  build_web_compilers: ">=4.7.0"
+  lints: ">=6.1.0"
+  tekartik_lints:
+    git:
+      url: https://github.com/tekartik/common.dart
+      path: packages/lints
+  test: ">=1.31.0"
+
+dependency_overrides:
+  tekartik_midi_synth:
+    path: ../midi_synth
