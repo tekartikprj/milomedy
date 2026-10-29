@@ -5,4 +5,5 @@ import 'package:milomedy_midi_engine/web_worklet.dart';
 Future<MidiHostPlayer> midiCreatePlayerImpl({
   required List<MidiSynthSpec> synths,
   required String workletUrl,
+  void Function()? isolateSetup,
 }) => MidiWorkletPlayer.create(synths: synths, url: workletUrl);

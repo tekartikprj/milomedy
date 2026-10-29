@@ -67,6 +67,33 @@ class _Host {
       ofType(MidiHostEvents.state).lastOrNull?['state'] as String?;
 }
 
+/// A support whose SoundFont is the number of its bytes.
+class _FakeSupport implements MidiSoundFontSupport {
+  @override
+  Object parse(Uint8List bytes) => bytes.length;
+
+  @override
+  MidiSynth synth(Object soundFont, int sampleRate) =>
+      _FakeSynth(soundFont as int, sampleRate);
+}
+
+/// The click instrument, remembering its program changes.
+class _FakeSynth extends DartSynth {
+  final int soundFont;
+  final programChanges = <int>[];
+
+  _FakeSynth(this.soundFont, int sampleRate)
+    : super(sampleRate: sampleRate, percussion: const ClickInstrument());
+
+  @override
+  void send(int status, int data1, [int data2 = 0]) {
+    if (status & 0xf0 == midiProgramChange) {
+      programChanges.add(data1);
+    }
+    super.send(status, data1, data2);
+  }
+}
+
 /// A click a second on track 0, for 4 s.
 MidiTimeline _clicks() => midiMetronomeTimeline(bpm: 60, beats: 4);
 
@@ -116,7 +143,7 @@ void main() {
         percussion: MidiInstrumentIds.click,
       );
       expect(MidiSynthSpec.fromMap(spec.toMap()), spec);
-      var synth = spec.build(_rate);
+      var synth = spec.build(_rate) as DartSynth;
       expect(
         (synth.instrument! as ReedInstrument).ranks,
         ReedRegister.byId('musette').ranks,
@@ -127,7 +154,84 @@ void main() {
       ).applyTo(synth);
       expect((synth.instrument! as ReedInstrument).timbre, ReedTimbre.bass);
       expect(synth.percussion, isNull);
-      expect(MidiSynthSpec.metronome.build(_rate).instrument, isNull);
+      expect(
+        (MidiSynthSpec.metronome.build(_rate) as DartSynth).instrument,
+        isNull,
+      );
+      const soundFont = MidiSynthSpec(soundFont: 'gm');
+      expect(MidiSynthSpec.fromMap(soundFont.toMap()), soundFont);
+      expect(soundFont.build(_rate), isA<MidiDeferredSynth>());
+    });
+  });
+
+  group('SoundFont tracks', () {
+    tearDown(() => midiSoundFontSupport = null);
+
+    test('silent until loaded, an error without support', () {
+      var host = _Host([const MidiSynthSpec(soundFont: 'gm')]);
+      host
+        ..command(MidiHostCommands.load, {
+          'timeline': midiTimelineToMap(_clicks()),
+        })
+        ..command(MidiHostCommands.play);
+      expect(_peak(host.render(0.5)), 0);
+      host.command(MidiHostCommands.soundFont, {
+        'id': 'gm',
+        'bytes': Uint8List(4),
+      });
+      expect(
+        host.ofType(MidiHostEvents.error).single['message'],
+        contains('midiSoundFontRegister'),
+      );
+    });
+
+    test('loaded: the tracks playing it get their synth', () {
+      // A fake support: the "SoundFont" is its size, its synth the click.
+      midiSoundFontSupport = _FakeSupport();
+      var host = _Host([
+        const MidiSynthSpec(soundFont: 'gm'),
+        const MidiSynthSpec(soundFont: 'other'),
+      ]);
+      var timeline = MidiTimeline(
+        notes: [
+          for (var track = 0; track < 2; track++)
+            for (var beat = 0; beat < 4; beat++)
+              MidiTimelineNote(
+                start: beat.toDouble(),
+                duration: 0.1,
+                key: midiKeyHiWoodBlock,
+                track: track,
+                channel: midiPercussionChannel,
+              ),
+        ],
+        messages: const [
+          // Chased once the synth is set.
+          MidiTimelineMessage(
+            time: 0,
+            status: midiProgramChange | midiPercussionChannel,
+            data1: 7,
+          ),
+        ],
+      );
+      host
+        ..command(MidiHostCommands.load, {
+          'timeline': midiTimelineToMap(timeline),
+        })
+        ..command(MidiHostCommands.play)
+        ..render(0.5)
+        ..command(MidiHostCommands.soundFont, {
+          'id': 'gm',
+          'bytes': Uint8List(10),
+        });
+      var synth = host.host.engine.synths[0] as MidiDeferredSynth;
+      expect(synth.synth, isA<_FakeSynth>());
+      expect((synth.synth! as _FakeSynth).soundFont, 10);
+      expect((host.host.engine.synths[1] as MidiDeferredSynth).synth, isNull);
+      // The clicks of track 0 from the next beat (at 1 s, 31 blocks of 128
+      // frames played), the program sent again.
+      expect(_onsets(host.render(1)), [_rate - 31 * 128 + 1]);
+      expect((synth.synth! as _FakeSynth).programChanges, contains(7));
+      expect(host.ofType(MidiHostEvents.error), isEmpty);
     });
   });
 

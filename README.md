@@ -11,6 +11,7 @@ Status: experimental, the APIs will change.
 |---|---|---|
 | `milomedy_midi_engine` | `packages/midi_engine` | Plays a timeline of MIDI events on the audio clock: seek, loop, speed, transpose, one synth per track, a mixer, a player, a stream output and a Web Audio output, offline rendering to WAV, a metronome |
 | `milomedy_midi_audio_stream` | `packages/midi_audio_stream` | Flutter: the engine on `mp_audio_stream` in a background isolate (Android, iOS, Linux, macOS, Windows), and `midiCreatePlayer`, which picks the AudioWorklet player on the web |
+| `milomedy_midi_synth_sf2` | `packages/midi_synth_sf2` | The SoundFont synth (dart_melty_soundfont), a SoundFont reader, the SoundFont tracks of the isolate and AudioWorklet players, `midi_render` (a MIDI file to WAV) |
 | `milomedy_midi_synth` | `packages/midi_synth` | The `MidiSynth` interface and instruments written in Dart, with no asset: accordion reeds, a metronome click |
 | `tekartik_raw_audio` | `packages/raw_audio` | Raw audio output interface (16-bit PCM, feed callback), memory output, test tone generator |
 | `tekartik_raw_audio_wav` | `packages/raw_audio_wav` | Output to a WAV file |

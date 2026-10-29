@@ -7,7 +7,9 @@ import 'mp_audio_stream_output.dart';
 Future<MidiHostPlayer> midiCreatePlayerImpl({
   required List<MidiSynthSpec> synths,
   required String workletUrl,
+  void Function()? isolateSetup,
 }) => MidiIsolatePlayer.spawn(
   synths: synths,
   openStream: midiMpAudioStreamOpener,
+  setup: isolateSetup,
 );

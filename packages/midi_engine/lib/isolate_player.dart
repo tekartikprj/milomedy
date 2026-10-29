@@ -17,6 +17,7 @@ class _Setup {
   final SendPort events;
   final List<Map<String, Object?>> synths;
   final MidiPcmStreamOpener openStream;
+  final void Function()? setup;
   final int sampleRate;
   final double latency;
 
@@ -24,6 +25,7 @@ class _Setup {
     this.events,
     this.synths,
     this.openStream,
+    this.setup,
     this.sampleRate,
     this.latency,
   );
@@ -54,10 +56,13 @@ class MidiIsolatePlayer extends MidiHostPlayer {
   ///
   /// [openStream] is sent to the isolate: a top-level function, or a closure
   /// that captures only sendable values (a closure keeps every variable of
-  /// the function that creates it).
+  /// the function that creates it). So is [setup], run first in the
+  /// isolate: `midiSoundFontRegister` of milomedy_midi_synth_sf2 for the
+  /// SoundFont tracks.
   static Future<MidiIsolatePlayer> spawn({
     required List<MidiSynthSpec> synths,
     required MidiPcmStreamOpener openStream,
+    void Function()? setup,
     int sampleRate = 44100,
     double latency = 0.1,
   }) async {
@@ -87,6 +92,7 @@ class MidiIsolatePlayer extends MidiHostPlayer {
           events.sendPort,
           [for (var spec in synths) spec.toMap()],
           openStream,
+          setup,
           sampleRate,
           latency,
         ),
@@ -129,6 +135,7 @@ class MidiIsolatePlayer extends MidiHostPlayer {
 void _main(_Setup setup) {
   MidiPcmStream stream;
   try {
+    setup.setup?.call();
     stream = setup.openStream(setup.sampleRate);
   } catch (e) {
     setup.events.send({'type': MidiHostEvents.error, 'message': '$e'});

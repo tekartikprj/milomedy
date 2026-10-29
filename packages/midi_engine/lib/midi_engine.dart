@@ -18,6 +18,7 @@ export 'src/player.dart';
 export 'src/protocol.dart';
 export 'src/sink.dart';
 export 'src/song.dart';
+export 'src/sound_font_support.dart';
 export 'src/stream_host.dart';
 export 'src/stream_sink.dart';
 export 'src/synth_spec.dart';

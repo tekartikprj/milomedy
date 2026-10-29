@@ -22,6 +22,10 @@ updates:
     schedule:
       interval: "monthly"
   - package-ecosystem: "pub"
+    directory: "packages/midi_synth_sf2"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "pub"
     directory: "packages/port_audio"
     schedule:
       interval: "monthly"

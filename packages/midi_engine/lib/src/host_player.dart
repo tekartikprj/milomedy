@@ -4,6 +4,7 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'mixer.dart';
 import 'protocol.dart';
@@ -231,6 +232,15 @@ abstract class MidiHostPlayer implements MidiTransport {
   void setLoop(double? start, double? end) {
     _loop = start == null || end == null || end <= start ? null : (start, end);
     _send({'type': MidiHostCommands.loop, 'start': start, 'end': end});
+  }
+
+  /// Loads the SoundFont [bytes] (an `.sf2` file) as [id]: the tracks whose
+  /// spec plays it get their synth. Completes once the host has read it; an
+  /// error (no SoundFont support registered in the host, a bad file) comes
+  /// on [onError].
+  Future<void> loadSoundFont(String id, Uint8List bytes) {
+    _send({'type': MidiHostCommands.soundFont, 'id': id, 'bytes': bytes});
+    return sync();
   }
 
   /// Sets the synth of [track] (an instrument, a register): heard at once.

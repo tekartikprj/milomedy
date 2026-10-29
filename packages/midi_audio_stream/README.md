@@ -38,6 +38,11 @@ await player.play();
 
 On the web, create the player after a user gesture.
 
+For SoundFont tracks (`milomedy_midi_synth_sf2`), pass
+`isolateSetup: midiSoundFontRegister`. On the web, `setup_web_worklet` puts the
+SoundFont synth in the worklet when the app depends on that package. Then load
+the SoundFont with `player.loadSoundFont(id, bytes)`.
+
 - `mp_audio_stream` has a single native stream, so open one player at a time.
 - `MidiMpAudioStream` is the `MidiPcmStream` behind the isolate player, for other
   uses.

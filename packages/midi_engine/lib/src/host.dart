@@ -12,6 +12,7 @@ import 'package:milomedy_midi_synth/midi_synth.dart';
 import 'engine.dart';
 import 'mixer.dart';
 import 'protocol.dart';
+import 'sound_font_support.dart';
 import 'synth_spec.dart';
 import 'transport.dart';
 
@@ -22,6 +23,12 @@ class MidiEngineHost {
 
   /// The engine.
   final MidiEngine engine;
+
+  /// The spec of each track.
+  final List<MidiSynthSpec> specs;
+
+  /// The SoundFonts loaded, by id.
+  final _soundFonts = <String, Object>{};
 
   /// Sends an event to the player.
   final void Function(Map<String, Object?> event) send;
@@ -52,7 +59,8 @@ class MidiEngineHost {
     required List<MidiSynthSpec> synths,
     required this.send,
     this.reportFrames = 4096,
-  }) : engine = MidiEngine(
+  }) : specs = List.unmodifiable(synths),
+       engine = MidiEngine(
          sampleRate: sampleRate,
          synths: [for (var spec in synths) spec.build(sampleRate)],
        ),
@@ -175,10 +183,38 @@ class MidiEngineHost {
           MidiSynthSpec.fromMap(command['spec'] as Map).applyTo(synth);
           _resync();
         }
+      case MidiHostCommands.soundFont:
+        _loadSoundFont(command['id'] as String, command['bytes'] as Uint8List);
       case MidiHostCommands.sync:
         send({'type': MidiHostEvents.sync, 'id': command['id']});
       default:
         throw ArgumentError.value(command['type'], 'type', 'unknown command');
+    }
+  }
+
+  /// Parses [bytes] (with the registered support) and gives the tracks
+  /// playing SoundFont [id] their synth, set as before (the messages before
+  /// the position sent again).
+  void _loadSoundFont(String id, Uint8List bytes) {
+    var support = midiSoundFontSupport;
+    if (support == null) {
+      throw StateError(
+        'no SoundFont support here: register it '
+        '(milomedy_midi_synth_sf2 midiSoundFontRegister())',
+      );
+    }
+    var soundFont = _soundFonts[id] = support.parse(bytes);
+    for (var (track, spec) in specs.indexed) {
+      var synth = engine.synths[track];
+      if (spec.soundFont == id && synth is MidiDeferredSynth) {
+        synth.synth = support.synth(soundFont, sampleRate);
+      }
+    }
+    if (_state == MidiPlayerState.playing) {
+      _resync();
+    } else {
+      engine.silence();
+      engine.seek(engine.position);
     }
   }
 

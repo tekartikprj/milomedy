@@ -45,6 +45,10 @@ abstract final class MidiHostCommands {
   /// Sets the synth of `track` (`spec`).
   static const synth = 'synth';
 
+  /// Loads the SoundFont `bytes` as `id`: the tracks whose spec plays it
+  /// get their synth.
+  static const soundFont = 'soundFont';
+
   /// Answered with a `sync` event of the same `id` once the commands before
   /// it are handled.
   static const sync = 'sync';

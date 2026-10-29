@@ -118,14 +118,20 @@ player
 await player.play();
 ```
 
-## midi_render
+## SoundFont tracks
 
-Renders a MIDI file to WAV. Until the SoundFont synth exists, every program
-plays the accordion reed and the percussion channel plays the click.
+A track whose spec has a `soundFont` id (`MidiSynthSpec(soundFont: 'gm')`) stays
+silent until `loadSoundFont('gm', bytes)` sends the SoundFont to the host. The
+engine itself does not know SoundFonts, so a metronome does not pay for them:
+`milomedy_midi_synth_sf2` registers its synth where the host runs.
 
-```
-dart run milomedy_midi_engine:midi_render [-o out.wav] [--rate 44100] [--speed 1] [--transpose 0] song.mid
-```
+- **AudioWorklet:** `setup_web_worklet` registers it in the worklet when the app
+  depends on `milomedy_midi_synth_sf2`.
+- **Isolate:** pass `midiSoundFontRegister` as the `setup` of
+  `MidiIsolatePlayer.spawn`.
+
+`midi_render`, the CLI that renders a MIDI file to WAV, moved to
+`milomedy_midi_synth_sf2`, with a `--soundfont` option.
 
 ## Examples
 

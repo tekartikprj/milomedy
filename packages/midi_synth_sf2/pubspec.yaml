@@ -1,0 +1,38 @@
+name: milomedy_midi_synth_sf2
+description: >-
+  The SoundFont synth of the MIDI engine: dart_melty_soundfont behind the
+  MidiSynth interface, a SoundFont reader (info, presets), a tiny SoundFont
+  made in code for the tests. No SoundFont inside.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  dart_melty_soundfont: ">=2.0.0"
+  milomedy_midi_engine:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_engine
+  milomedy_midi_synth:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_synth
+
+dev_dependencies:
+  build_runner: ">=2.15.0"
+  build_web_compilers: ">=4.7.0"
+  lints: ">=6.1.0"
+  tekartik_lints:
+    git:
+      url: https://github.com/tekartik/common.dart
+      path: packages/lints
+  test: ">=1.31.0"
+  web: ">=1.1.0"
+
+dependency_overrides:
+  milomedy_midi_engine:
+    path: ../midi_engine
+  milomedy_midi_synth:
+    path: ../midi_synth
