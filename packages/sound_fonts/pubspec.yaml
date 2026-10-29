@@ -1,0 +1,37 @@
+name: milomedy_sound_fonts
+description: >-
+  The SoundFont library of the MIDI engine: downloads (with their size and
+  hash checked), imports, storage through fs_shim (files on io, IndexedDB
+  on the web), the default SoundFont, a built-in fallback.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  crypto: ">=3.0.7"
+  fs_shim: ">=2.7.0"
+  http: ">=1.5.0"
+  milomedy_midi_synth_sf2:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_synth_sf2
+
+dev_dependencies:
+  build_runner: ">=2.15.0"
+  build_web_compilers: ">=4.7.0"
+  lints: ">=6.1.0"
+  tekartik_lints:
+    git:
+      url: https://github.com/tekartik/common.dart
+      path: packages/lints
+  test: ">=1.31.0"
+
+dependency_overrides:
+  milomedy_midi_engine:
+    path: ../midi_engine
+  milomedy_midi_synth:
+    path: ../midi_synth
+  milomedy_midi_synth_sf2:
+    path: ../midi_synth_sf2

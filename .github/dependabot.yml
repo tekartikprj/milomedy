@@ -30,6 +30,10 @@ updates:
     schedule:
       interval: "monthly"
   - package-ecosystem: "pub"
+    directory: "packages/sound_fonts"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "pub"
     directory: "packages/raw_audio"
     schedule:
       interval: "monthly"
