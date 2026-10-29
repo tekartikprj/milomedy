@@ -73,7 +73,7 @@ class _FakeSupport implements MidiSoundFontSupport {
   Object parse(Uint8List bytes) => bytes.length;
 
   @override
-  MidiSynth synth(Object soundFont, int sampleRate) =>
+  MidiSynth synth(Object soundFont, int sampleRate, {bool effects = true}) =>
       _FakeSynth(soundFont as int, sampleRate);
 }
 
@@ -160,6 +160,9 @@ void main() {
       );
       const soundFont = MidiSynthSpec(soundFont: 'gm');
       expect(MidiSynthSpec.fromMap(soundFont.toMap()), soundFont);
+      const dry = MidiSynthSpec(soundFont: 'gm', effects: false);
+      expect(MidiSynthSpec.fromMap(dry.toMap()), dry);
+      expect(dry, isNot(soundFont));
       expect(soundFont.build(_rate), isA<MidiDeferredSynth>());
     });
   });

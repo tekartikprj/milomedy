@@ -193,6 +193,14 @@ void main() {
     });
   });
 
+  test('General MIDI names', () {
+    expect(midiGmProgramNames, hasLength(128));
+    expect(midiGmProgramName(0), 'Acoustic Grand Piano');
+    expect(midiGmProgramName(21), 'Accordion');
+    expect(midiGmProgramName(127), 'Gunshot');
+    expect(midiGmProgramName(128), isNull);
+  });
+
   test('key frequency', () {
     expect(midiKeyFrequency(69), 440);
     expect(midiKeyFrequency(57), closeTo(220, 1e-9));

@@ -15,8 +15,12 @@ class _Support implements MidiSoundFontSupport {
   Object parse(Uint8List bytes) => MidiSoundFont.fromBytes(bytes);
 
   @override
-  MidiSynth synth(Object soundFont, int sampleRate) =>
-      MidiSoundFontSynth(soundFont as MidiSoundFont, sampleRate: sampleRate);
+  MidiSynth synth(Object soundFont, int sampleRate, {bool effects = true}) =>
+      MidiSoundFontSynth(
+        soundFont as MidiSoundFont,
+        sampleRate: sampleRate,
+        reverbAndChorus: effects,
+      );
 }
 
 /// Registers the SoundFont synth in this isolate or worklet, so that the

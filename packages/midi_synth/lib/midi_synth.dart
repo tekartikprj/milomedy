@@ -8,5 +8,6 @@ import 'src/midi_synth.dart';
 
 export 'src/click.dart';
 export 'src/dart_synth.dart';
+export 'src/general_midi.dart';
 export 'src/midi_synth.dart';
 export 'src/reed.dart';

@@ -40,12 +40,18 @@ class MidiSynthSpec {
   /// instruments are then ignored.
   final String? soundFont;
 
+  /// The effects of a [soundFont] synth: its reverb and chorus. Each synth
+  /// has its own, so many tracks (one per channel) play dry: 16 synths with
+  /// their effects render 5 times slower than dry.
+  final bool effects;
+
   /// A spec.
   const MidiSynthSpec({
     this.instrument,
     this.register,
     this.percussion,
     this.soundFont,
+    this.effects = true,
   });
 
   /// A metronome: the click on the percussion channel.
@@ -57,6 +63,7 @@ class MidiSynthSpec {
     register: map['register'] as String?,
     percussion: map['percussion'] as String?,
     soundFont: map['soundFont'] as String?,
+    effects: map['effects'] as bool? ?? true,
   );
 
   /// As a map.
@@ -65,6 +72,7 @@ class MidiSynthSpec {
     if (register != null) 'register': register,
     if (percussion != null) 'percussion': percussion,
     if (soundFont != null) 'soundFont': soundFont,
+    if (!effects) 'effects': false,
   };
 
   DartInstrument? _instrument(String? id) => switch (id) {
@@ -100,10 +108,12 @@ class MidiSynthSpec {
       other.instrument == instrument &&
       other.register == register &&
       other.percussion == percussion &&
-      other.soundFont == soundFont;
+      other.soundFont == soundFont &&
+      other.effects == effects;
 
   @override
-  int get hashCode => Object.hash(instrument, register, percussion, soundFont);
+  int get hashCode =>
+      Object.hash(instrument, register, percussion, soundFont, effects);
 
   @override
   String toString() => 'MidiSynthSpec(${toMap()})';

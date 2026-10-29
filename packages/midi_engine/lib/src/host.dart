@@ -207,7 +207,11 @@ class MidiEngineHost {
     for (var (track, spec) in specs.indexed) {
       var synth = engine.synths[track];
       if (spec.soundFont == id && synth is MidiDeferredSynth) {
-        synth.synth = support.synth(soundFont, sampleRate);
+        synth.synth = support.synth(
+          soundFont,
+          sampleRate,
+          effects: spec.effects,
+        );
       }
     }
     if (_state == MidiPlayerState.playing) {

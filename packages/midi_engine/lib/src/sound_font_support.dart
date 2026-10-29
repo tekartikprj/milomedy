@@ -14,8 +14,9 @@ abstract class MidiSoundFontSupport {
   /// [synth].
   Object parse(Uint8List bytes);
 
-  /// A synth of [soundFont] (from [parse]) at [sampleRate].
-  MidiSynth synth(Object soundFont, int sampleRate);
+  /// A synth of [soundFont] (from [parse]) at [sampleRate], with its
+  /// reverb and chorus or dry ([effects]).
+  MidiSynth synth(Object soundFont, int sampleRate, {bool effects = true});
 }
 
 /// The SoundFont support of this isolate or worklet, null when not
