@@ -13,6 +13,7 @@ Status: experimental, the APIs will change.
 | `milomedy_midi_audio_stream` | `packages/midi_audio_stream` | Flutter: the engine on `mp_audio_stream` in a background isolate (Android, iOS, Linux, macOS, Windows), and `midiCreatePlayer`, which picks the AudioWorklet player on the web |
 | `milomedy_midi_synth_sf2` | `packages/midi_synth_sf2` | The SoundFont synth (dart_melty_soundfont), a SoundFont reader, the SoundFont tracks of the isolate and AudioWorklet players, `midi_render` (a MIDI file to WAV) |
 | `milomedy_sound_fonts` | `packages/sound_fonts` | The SoundFont library: downloads (checked), imports, storage through fs_shim (files, IndexedDB), the default SoundFont, GeneralUser GS from a copy the app hosts, a built-in fallback |
+| `milomedy_midi_asset` | `packages/midi_asset` | Twenty MIDI files made in Dart (MIT): band songs in various styles (drums, bass, organ, guitars, brass...) and piano pieces, as files and as code, with the arranger that writes them |
 | `milomedy_midi_synth` | `packages/midi_synth` | The `MidiSynth` interface and instruments written in Dart, with no asset: accordion reeds, a metronome click |
 | `tekartik_raw_audio` | `packages/raw_audio` | Raw audio output interface (16-bit PCM, feed callback), memory output, test tone generator |
 | `tekartik_raw_audio_wav` | `packages/raw_audio_wav` | Output to a WAV file |

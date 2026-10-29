@@ -10,6 +10,10 @@ updates:
     schedule:
       interval: "monthly"
   - package-ecosystem: "pub"
+    directory: "packages/midi_asset"
+    schedule:
+      interval: "monthly"
+  - package-ecosystem: "pub"
     directory: "packages/midi_audio_stream"
     schedule:
       interval: "monthly"
