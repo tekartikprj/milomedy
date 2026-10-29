@@ -1,0 +1,19 @@
+# Intellij files
+.idea/
+.vscode/
+*.iml
+
+# local
+.local/
+tmp/
+
+# Dart
+.dart_tool
+.DS_Store
+.packages
+.pub/
+build/
+pubspec_overrides.yaml
+/packages/libao/bin/libao.dll
+/packages/raw_audio_minisound/
+

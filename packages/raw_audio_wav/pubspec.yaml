@@ -1,0 +1,32 @@
+name: tekartik_raw_audio_wav
+description: Wav file implementation
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+# Add regular dependencies here.
+dependencies:
+  tekartik_common_utils:
+    git:
+      url: https://github.com/tekartik/common_utils.dart
+  tekartik_raw_audio:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/raw_audio
+  wav: ">=1.5.0"
+
+dev_dependencies:
+  path: ">=1.9.1"
+  fs_shim: ">=2.5.2"
+  lints: ">=6.1.0"
+  tekartik_lints:
+    git:
+      url: https://github.com/tekartik/common.dart
+      path: packages/lints
+  test: ">=1.31.0"
+
+dependency_overrides:
+  tekartik_raw_audio:
+    path: ../raw_audio

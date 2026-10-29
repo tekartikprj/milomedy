@@ -1,0 +1,29 @@
+name: tekartik_port_audio
+description: PortAudio bindings for Dart
+version: 1.0.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+# Add regular dependencies here.
+dependencies:
+
+  tekartik_common_utils:
+    git:
+      url: https://github.com/tekartik/common_utils.dart
+  tekartik_http_io:
+    git:
+      url: https://github.com/tekartik/http.dart
+      path: http_io
+  path: ">=1.9.1"
+  ffi:
+dev_dependencies:
+  wav:
+  dev_build: ">=1.1.8+2"
+  lints: ">=6.1.0"
+  test: ">=1.31.0"
+  tekartik_platform_io:
+    git:
+      url: https://github.com/tekartik/platform.dart
+      path: platform_io
