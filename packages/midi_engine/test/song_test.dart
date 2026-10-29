@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 import 'package:tekartik_midi/midi.dart';
 import 'package:tekartik_midi/midi_writer.dart';
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_synth/midi_synth.dart';
 import 'package:test/test.dart';
 
 const _ppq = 480;

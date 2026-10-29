@@ -6,9 +6,9 @@ library;
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:milomedy_midi_synth/midi_synth.dart';
 import 'package:tekartik_midi/midi.dart';
 import 'package:tekartik_midi/midi_parser.dart';
-import 'package:tekartik_midi_synth/midi_synth.dart';
 
 import 'tempo_map.dart';
 import 'timeline.dart';

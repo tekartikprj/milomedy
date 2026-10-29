@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 import 'package:test/test.dart';
 
 const _rate = 8000;
@@ -180,6 +180,20 @@ void main() {
       expect(engine.framesToLoopEnd, isNull);
       engine.render(_rate * 5);
       expect(engine.ended, isTrue);
+    });
+
+    test('a loop keeps its length in blocks of 128 frames', () {
+      const rate = 44100;
+      var timeline = midiMetronomeTimeline(bpm: 120, beats: 2);
+      var engine = midiMetronomeEngine(sampleRate: rate)
+        ..load(timeline)
+        ..setLoop(timeline.start, timeline.end);
+      var samples = <double>[];
+      for (var i = 0; i < 4 * rate ~/ 128; i++) {
+        samples.addAll(engine.render(128).left[0]);
+      }
+      // A sine: its first sample is 0.
+      expect(_onsets(samples), [for (var i = 0; i < 8; i++) i * rate ~/ 2 + 1]);
     });
 
     test('a loop does not play the note at its end', () {

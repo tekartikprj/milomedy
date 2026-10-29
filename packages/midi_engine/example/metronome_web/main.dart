@@ -1,7 +1,7 @@
 import 'dart:js_interop';
 
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_engine/web_audio.dart';
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_engine/web_audio.dart';
 import 'package:web/web.dart' as web;
 
 /// The tempo the timeline is built at: the tempo set is a speed, so that a

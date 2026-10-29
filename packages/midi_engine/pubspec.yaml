@@ -1,4 +1,4 @@
-name: tekartik_midi_engine
+name: milomedy_midi_engine
 description: >-
   MIDI engine, pure Dart: plays a timeline of events on the audio clock
   (each event at its frame, seek, loop, speed, transpose), one synth per
@@ -14,7 +14,7 @@ dependencies:
   tekartik_midi:
     git:
       url: https://github.com/tekartik/midi.dart
-  tekartik_midi_synth:
+  milomedy_midi_synth:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_synth
@@ -31,5 +31,5 @@ dev_dependencies:
   test: ">=1.31.0"
 
 dependency_overrides:
-  tekartik_midi_synth:
+  milomedy_midi_synth:
     path: ../midi_synth

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Worklet player</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; max-width: 640px; }
+    fieldset { margin-bottom: 16px; }
+    label { margin-right: 16px; }
+    #position { font-size: 32px; font-variant-numeric: tabular-nums; margin: 12px 0; }
+    #status { color: #666; }
+  </style>
+  <!-- midi_worklet.js is built by: dart run tool/setup_web_worklet.dart -->
+  <script defer src="main.dart.js"></script>
+</head>
+<body>
+  <h1>Worklet player</h1>
+  <p id="status">The engine runs in an AudioWorklet, rendered by Dart.</p>
+  <fieldset>
+    <legend>What to play</legend>
+    <button id="metronome">Metronome</button>
+    <label>Tempo <input id="bpm" type="number" min="20" max="300" value="100"> bpm</label>
+    <p><label>MIDI file <input id="file" type="file" accept=".mid,.midi,.kar"></label></p>
+  </fieldset>
+  <fieldset>
+    <legend>Transport</legend>
+    <button id="play">Play</button>
+    <button id="pause">Pause</button>
+    <button id="stop">Stop</button>
+    <label>Speed <input id="speed" type="number" min="0.25" max="2" step="0.05" value="1"></label>
+    <label>Transpose <input id="transpose" type="number" min="-12" max="12" value="0"></label>
+    <div id="position">0.0 s</div>
+  </fieldset>
+</body>
+</html>

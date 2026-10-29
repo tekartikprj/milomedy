@@ -7,7 +7,7 @@ library;
 
 import 'dart:typed_data';
 
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 
 import 'timeline.dart';
 
@@ -164,6 +164,18 @@ class MidiEngine {
   /// Releases every note (a pause).
   void releaseAll() => _releaseAll();
 
+  /// Silences every synth at once, their releases too (all sound off on
+  /// every channel): before a seek when nothing plays, so that no release
+  /// is heard when playing again.
+  void silence() {
+    _sounding.clear();
+    for (var synth in synths) {
+      for (var channel = 0; channel < 16; channel++) {
+        synth.send(midiControlChange | channel, midiControllerAllSoundOff);
+      }
+    }
+  }
+
   void _releaseAll() {
     for (var sounding in _sounding) {
       synths[sounding.track].send(midiNoteOff | sounding.channel, sounding.key);
@@ -286,7 +298,9 @@ class MidiEngine {
     if (loopEnd == null || _position >= loopEnd) {
       return null;
     }
-    return ((loopEnd - _position) / _speed * sampleRate).ceil();
+    // The position adds up the blocks rendered: rounding errors must not
+    // make the loop one frame longer.
+    return ((loopEnd - _position) / _speed * sampleRate - 1e-6).ceil();
   }
 
   /// Renders [frames] frames: the events due are sent at their frame, the

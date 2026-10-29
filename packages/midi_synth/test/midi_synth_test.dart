@@ -1,7 +1,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 import 'package:test/test.dart';
 
 const _rate = 8000;

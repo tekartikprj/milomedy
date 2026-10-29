@@ -1,4 +1,4 @@
-# tekartik_midi_synth
+# milomedy_midi_synth
 
 MIDI synths in pure Dart (VM, dart2js, dart2wasm), with no asset.
 
@@ -23,7 +23,7 @@ that does not use it does not pull it in.
 
 ```yaml
 dependencies:
-  tekartik_midi_synth:
+  milomedy_midi_synth:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_synth

@@ -1,4 +1,4 @@
-name: tekartik_midi_synth
+name: milomedy_midi_synth
 description: >-
   MIDI synths, pure Dart: the MidiSynth interface (channel messages in,
   stereo frames out) and instruments written in Dart that need no asset:

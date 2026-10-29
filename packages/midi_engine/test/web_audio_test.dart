@@ -1,8 +1,8 @@
 @TestOn('browser')
 library;
 
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_engine/web_audio.dart';
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_engine/web_audio.dart';
 import 'package:test/test.dart';
 
 void main() {

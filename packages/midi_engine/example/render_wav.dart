@@ -2,8 +2,8 @@
 
 import 'dart:io';
 
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 
 /// Writes two WAV files in `.local/`: a metronome (4 measures at 100 bpm)
 /// and a tune on accordion reeds (treble, basses, chords) after a measure

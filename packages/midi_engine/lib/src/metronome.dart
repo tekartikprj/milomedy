@@ -4,7 +4,7 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 
 import 'engine.dart';
 import 'timeline.dart';

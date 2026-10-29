@@ -136,18 +136,101 @@ class MidiLimiter {
   MidiLimiter({required int sampleRate, this.limit = midiLimit})
     : _release = 1 - math.exp(-1 / (0.1 * sampleRate));
 
+  /// The gain for a frame peaking at [peak].
+  double _next(double peak) {
+    var target = peak > limit ? limit / peak : 1.0;
+    if (target < _gain) {
+      _gain = target;
+    } else {
+      _gain += (target - _gain) * _release;
+    }
+    return _gain;
+  }
+
   /// Limits [frames] (interleaved stereo) in place.
   void process(Float32List frames) {
     for (var i = 0; i < frames.length; i += 2) {
-      var peak = math.max(frames[i].abs(), frames[i + 1].abs());
-      var target = peak > limit ? limit / peak : 1.0;
-      if (target < _gain) {
-        _gain = target;
-      } else {
-        _gain += (target - _gain) * _release;
-      }
-      frames[i] *= _gain;
-      frames[i + 1] *= _gain;
+      var gain = _next(math.max(frames[i].abs(), frames[i + 1].abs()));
+      frames[i] *= gain;
+      frames[i + 1] *= gain;
     }
+  }
+
+  /// Limits [left] and [right] in place.
+  void processStereo(Float32List left, Float32List right) {
+    for (var i = 0; i < left.length; i++) {
+      var gain = _next(math.max(left[i].abs(), right[i].abs()));
+      left[i] *= gain;
+      right[i] *= gain;
+    }
+  }
+}
+
+/// The mix of a track in a [MidiStereoMixdown]: its gain moves to [target]
+/// over a block.
+class _MixdownTrack {
+  double gain;
+  double target;
+  double pan;
+
+  _MixdownTrack(this.gain, this.pan) : target = gain;
+}
+
+/// Mixes rendered blocks down to stereo as they are played: a gain per track
+/// moved to its new value over a block (no click), a pan, the master gain
+/// and the limiter.
+class MidiStereoMixdown {
+  final _tracks = <_MixdownTrack>[];
+  final MidiLimiter _limiter;
+
+  /// A mixdown at [sampleRate].
+  MidiStereoMixdown({required int sampleRate})
+    : _limiter = MidiLimiter(sampleRate: sampleRate);
+
+  _MixdownTrack _track(int track) {
+    while (_tracks.length <= track) {
+      _tracks.add(_MixdownTrack(1, 0));
+    }
+    return _tracks[track];
+  }
+
+  /// The [gain] and the [pan] of [track], heard from the next block (the
+  /// first time: at once).
+  void setTrack(int track, {required double gain, required double pan}) {
+    var isNew = track >= _tracks.length;
+    var mix = _track(track)
+      ..target = gain
+      ..pan = pan;
+    if (isNew) {
+      mix.gain = gain;
+    }
+  }
+
+  /// Mixes [block] into [left] and [right] (replacing what is there, of the
+  /// block length).
+  void mix(MidiRenderBlock block, Float32List left, Float32List right) {
+    var frames = block.frames;
+    left.fillRange(0, frames, 0);
+    right.fillRange(0, frames, 0);
+    for (var track = 0; track < block.trackCount; track++) {
+      var mix = _track(track);
+      var from = mix.gain;
+      var to = mix.target;
+      mix.gain = to;
+      if (from == 0 && to == 0) {
+        continue;
+      }
+      var pan = midiStereoPan(mix.pan);
+      var trackLeft = block.left[track];
+      var trackRight = block.right[track];
+      for (var i = 0; i < frames; i++) {
+        var gain = (from + (to - from) * i / frames) * midiMasterGain;
+        var l = trackLeft[i] * gain;
+        var r = trackRight[i] * gain;
+        left[i] += l * pan.leftToLeft + r * pan.rightToLeft;
+        right[i] += l * pan.leftToRight + r * pan.rightToRight;
+      }
+    }
+    _limiter.processStereo(left, right);
   }
 }

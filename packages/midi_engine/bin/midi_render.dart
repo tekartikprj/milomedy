@@ -2,13 +2,13 @@
 
 import 'dart:io';
 
-import 'package:tekartik_midi_engine/midi_engine.dart';
-import 'package:tekartik_midi_synth/midi_synth.dart';
+import 'package:milomedy_midi_engine/midi_engine.dart';
+import 'package:milomedy_midi_synth/midi_synth.dart';
 
 const _usage = '''
 Renders a MIDI file to a 16-bit stereo WAV file.
 
-Usage: dart run tekartik_midi_engine:midi_render [options] <file.mid>
+Usage: dart run milomedy_midi_engine:midi_render [options] <file.mid>
 
 Options:
   -o <file.wav>     the output (the input with .wav by default)

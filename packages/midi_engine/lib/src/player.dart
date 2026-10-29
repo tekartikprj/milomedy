@@ -10,18 +10,7 @@ import 'engine.dart';
 import 'mixer.dart';
 import 'sink.dart';
 import 'timeline.dart';
-
-/// The states of the player.
-enum MidiPlayerState {
-  /// At the start (or after the end).
-  stopped,
-
-  /// Playing.
-  playing,
-
-  /// Paused somewhere.
-  paused,
-}
+import 'transport.dart';
 
 /// A block scheduled: when on the output clock, from which song time.
 class _Scheduled {
@@ -33,8 +22,8 @@ class _Scheduled {
   _Scheduled(this.when, this.songStart, this.seconds, this.speed);
 }
 
-/// The player.
-class MidiPlayer {
+/// The player, rendering on the main isolate a little ahead of the output.
+class MidiPlayer implements MidiTransport {
   /// The output.
   final MidiAudioSink sink;
 
@@ -72,15 +61,19 @@ class MidiPlayer {
   }
 
   /// The state.
+  @override
   MidiPlayerState get state => _state;
 
   /// The state and its changes.
+  @override
   Stream<MidiPlayerState> get onState => _stateController.stream;
 
   /// True while playing.
+  @override
   bool get isPlaying => _state == MidiPlayerState.playing;
 
   /// The timeline played, null before [load].
+  @override
   MidiTimeline? get timeline => engine.timeline;
 
   void _setState(MidiPlayerState state) {
@@ -91,6 +84,7 @@ class MidiPlayer {
   }
 
   /// Loads [timeline], stopped at its start.
+  @override
   void load(MidiTimeline timeline) {
     _halt();
     engine.load(timeline);
@@ -99,6 +93,7 @@ class MidiPlayer {
 
   /// Plays [timeline] instead of the current one from the same place (an
   /// edit): heard at once.
+  @override
   void replace(MidiTimeline timeline) {
     if (engine.timeline == null) {
       load(timeline);
@@ -111,6 +106,7 @@ class MidiPlayer {
   }
 
   /// The song time heard now, in seconds (negative in a count-in).
+  @override
   double get position {
     if (_state != MidiPlayerState.playing || _scheduled.isEmpty) {
       return engine.position;
@@ -144,54 +140,64 @@ class MidiPlayer {
   }
 
   /// Sets the volume of [track], 0 to 1.
+  @override
   void setVolume(int track, double volume) {
     mixer.tracks[track].volume = volume;
     applyMix();
   }
 
   /// Sets the pan of [track], -1 to 1.
+  @override
   void setPan(int track, double pan) {
     mixer.tracks[track].pan = pan;
     applyMix();
   }
 
   /// Mutes [track] or not.
+  @override
   void setMute(int track, bool mute) {
     mixer.tracks[track].mute = mute;
     applyMix();
   }
 
   /// Solos [track] or not.
+  @override
   void setSolo(int track, bool solo) {
     mixer.tracks[track].solo = solo;
     applyMix();
   }
 
   /// The song seconds played in a second.
+  @override
   double get speed => engine.speed;
 
   /// Sets the speed: heard at once, from the same place.
+  @override
   set speed(double speed) {
     engine.speed = speed;
     resync();
   }
 
   /// The transposition, in semitones.
+  @override
   int get transpose => engine.transpose;
 
   /// Sets the transposition: heard at once.
+  @override
   set transpose(int transpose) {
     engine.transpose = transpose;
     resync();
   }
 
   /// Loops from [start] to [end] (song seconds), null for no loop.
+  @override
   void setLoop(double? start, double? end) {
     engine.setLoop(start, end);
     resync();
   }
 
   /// Plays from where it is (from the start after the end).
+  @override
   Future<void> play() async {
     var timeline = engine.timeline;
     if (timeline == null || _state == MidiPlayerState.playing) {
@@ -206,6 +212,7 @@ class MidiPlayer {
   }
 
   /// Pauses where it is.
+  @override
   void pause() {
     if (_state != MidiPlayerState.playing) {
       return;
@@ -218,6 +225,7 @@ class MidiPlayer {
   }
 
   /// Stops and goes back to the start.
+  @override
   void stop() {
     _halt();
     var timeline = engine.timeline;
@@ -228,6 +236,7 @@ class MidiPlayer {
   }
 
   /// Goes to [position] (song seconds).
+  @override
   void seek(double position) {
     _cancelScheduled();
     engine.seek(position);
@@ -305,6 +314,7 @@ class MidiPlayer {
   }
 
   /// Stops and closes the output.
+  @override
   Future<void> close() async {
     _halt();
     await _stateController.close();

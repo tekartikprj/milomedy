@@ -1,4 +1,4 @@
-# tekartik_midi_engine
+# milomedy_midi_engine
 
 A MIDI engine in pure Dart (VM, dart2js, dart2wasm), taken from accordelio's
 sound engine and generalized from its four parts to tracks and MIDI channels.
@@ -28,6 +28,18 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
   - `MidiWebAudioSink` (`web_audio.dart`): an AudioBuffer per block and per
     track, through Web Audio gain and pan nodes.
   - `MidiSilentSink`, for tests.
+- **AudioWorklet player** (`web_worklet.dart`). `MidiWorkletPlayer` implements
+  `MidiTransport`, like `MidiPlayer`, but the engine runs in an AudioWorklet, on
+  the audio thread.
+  - The worklet itself is Dart compiled with dart2js. The page can be compiled
+    with dart2js or dart2wasm.
+  - The page sends commands through the node's port. The worklet renders each
+    128-frame block with the mixer and the limiter, and reports its state and
+    position.
+  - Nothing is rendered ahead, so a change is heard after the output latency
+    only, and a busy page never makes a gap.
+  - `MidiEngineHost` and the messages of `protocol.dart` are pure Dart, tested on
+    the VM.
 - **Offline.** `midiRenderOffline` renders a whole timeline with the same mix
   and limiter as playback. `midiWavBytes` writes 16-bit WAV.
 - **Metronome.** `midiMetronomeTimeline` builds one or more measures of clicks
@@ -50,10 +62,44 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
 
 ```yaml
 dependencies:
-  tekartik_midi_engine:
+  milomedy_midi_engine:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_engine
+```
+
+## The AudioWorklet module
+
+The worklet module is built from Dart by a setup step, as `sqflite_common_ffi_web`
+builds its shared worker:
+
+```
+dart run milomedy_midi_engine:setup_web_worklet [--dir web] [--force] [--verbose]
+```
+
+- It compiles the worklet with dart2js in
+  `.dart_tool/milomedy_midi_engine/web_worklet/`, and writes `web/midi_worklet.js`
+  next to the page.
+- It builds again only when the package version, the sources of the engine and
+  the synths, the `web` package or the Dart SDK changed. Otherwise it only copies
+  the cached build.
+- An app can call it from its own tool in one line:
+
+```dart
+import 'package:milomedy_midi_engine/setup.dart';
+
+Future<void> main() => setupMidiWebWorklet();
+```
+
+Then on the page, after a user gesture:
+
+```dart
+var player = await MidiWorkletPlayer.create(synths: [MidiSynthSpec.metronome]);
+var timeline = midiMetronomeTimeline(bpm: 100);
+player
+  ..load(timeline)
+  ..setLoop(timeline.start, timeline.end);
+await player.play();
 ```
 
 ## midi_render
@@ -62,13 +108,17 @@ Renders a MIDI file to WAV. Until the SoundFont synth exists, every program
 plays the accordion reed and the percussion channel plays the click.
 
 ```
-dart run tekartik_midi_engine:midi_render [-o out.wav] [--rate 44100] [--speed 1] [--transpose 0] song.mid
+dart run milomedy_midi_engine:midi_render [-o out.wav] [--rate 44100] [--speed 1] [--transpose 0] song.mid
 ```
 
 ## Examples
 
 - `dart run example/render_wav.dart` writes `.local/metronome.wav` and an
   accordion tune to `.local/tune.wav`.
+- `example/worklet_web`: a metronome and a MIDI file player on the AudioWorklet
+  player. Run `dart run tool/setup_web_worklet.dart` once to build its
+  `midi_worklet.js`, then serve it like the metronome page below, at
+  `http://localhost:8080/worklet_web/`.
 - `example/metronome_web`: a metronome page. Serve it with
   `dart run build_runner serve example:8080`, then open
   `http://localhost:8080/metronome_web/`. Compiled with `dart compile js -O2`,
