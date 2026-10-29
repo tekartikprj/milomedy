@@ -18,6 +18,7 @@ dependencies:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_engine
+  material_ui: ">=1.5.0"
 
 dev_dependencies:
   flutter_test:

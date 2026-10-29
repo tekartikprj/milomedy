@@ -28,6 +28,7 @@ base class _Info extends Struct {
   external int type;
   external Pointer<Utf8> name;
   external Pointer<Utf8> shortName;
+  external Pointer<Utf8> author;
   external Pointer<Utf8> comment;
   @Int32()
   external int byteFormat;
@@ -49,6 +50,9 @@ class Info {
   /// A short identifier for the driver.
   final String shortName;
 
+  /// The driver author.
+  final String author;
+
   /// Driver comment.
   final String comment;
 
@@ -62,13 +66,14 @@ class Info {
     : type = _intToOutputType(info.type),
       name = info.name.toDartString(),
       shortName = info.shortName.toDartString(),
+      author = info.author.toDartString(),
       comment = info.comment.toDartString(),
       byteFormat = info.byteFormat,
       priority = info.priority;
 
   @override
   String toString() {
-    return 'Info {type: $type, name: $name, shortName: $shortName, comment: $comment, byteFormat: $byteFormat, priority: $priority}';
+    return 'Info {type: $type, name: $name, shortName: $shortName, author: $author, comment: $comment, byteFormat: $byteFormat, priority: $priority}';
   }
 }
 
@@ -256,16 +261,45 @@ class Libao {
     );
   }
 
-  /// Loads the libao library.
-  factory Libao.open([String? /*?*/ path]) {
-    if (path != null && path.isNotEmpty) {
-      // nada.
+  /// The paths tried by [Libao.open] when none is given, by platform: where
+  /// the system packages and Homebrew install libao.
+  static List<String> get defaultPaths {
+    if (Platform.isMacOS) {
+      return [
+        // Homebrew on Apple silicon, then on Intel.
+        '/opt/homebrew/lib/libao.4.dylib',
+        '/usr/local/lib/libao.4.dylib',
+        'libao.4.dylib',
+      ];
     } else if (Platform.isLinux) {
-      path = '/usr/lib/x86_64-linux-gnu/libao.so.4';
+      return [
+        '/usr/lib/x86_64-linux-gnu/libao.so.4',
+        '/usr/lib/aarch64-linux-gnu/libao.so.4',
+        'libao.so.4',
+      ];
+    } else if (Platform.isWindows) {
+      return ['libao.dll'];
     }
+    return [];
+  }
 
-    final lib = DynamicLibrary.open(path!);
-    return Libao._(lib);
+  /// Loads the libao library at [path], or at the first of [defaultPaths]
+  /// that loads.
+  factory Libao.open([String? path]) {
+    if (path != null && path.isNotEmpty) {
+      return Libao._(DynamicLibrary.open(path));
+    }
+    for (var candidate in defaultPaths) {
+      try {
+        return Libao._(DynamicLibrary.open(candidate));
+      } on ArgumentError catch (_) {
+        // Not there, try the next one.
+      }
+    }
+    throw StateError(
+      'libao not found in ${defaultPaths.join(', ')}: install it '
+      '(brew install libao, apt install libao4) or give its path',
+    );
   }
 
   /// Initializes the internal libao data structures and loads all of the available plugins.
