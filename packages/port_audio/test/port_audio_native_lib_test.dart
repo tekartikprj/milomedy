@@ -13,7 +13,9 @@ import 'package:test/test.dart';
 
 Future<void> main() async {
   var portAudioNativeLib = await getPortAudioNativeLib();
-  var skip = platformIo.runningOnGithub && !Platform.isLinux;
+  // GitHub runners have no sound card: since the 2026-10 ubuntu-24.04 images,
+  // the system PortAudio aborts in Pa_Initialize there, so run locally only.
+  var skip = platformIo.runningOnGithub;
   if (skip) {
     test(
       'skipping port_audio on github for ${Platform.operatingSystem}',

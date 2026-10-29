@@ -81,7 +81,8 @@ blocking `Pa_WriteStream` never freezes your main isolate.
   use. It is synchronous and blocks the calling isolate; prefer the public
   API.
 * Tests: `dart test` (VM only, `@TestOn('vm')`); the tests skip on GitHub
-  runners that are not Linux (`platformIo.runningOnGithub`). `example/`
+  runners (`platformIo.runningOnGithub`): they have no sound card, and the system
+  PortAudio aborts there since the 2026-10 ubuntu-24.04 images. `example/`
   streams a C major scale that `example/example_sound.dart` writes once to
   `.local/` with `package:wav` (a dev dependency; add it to your own pubspec to
   read wav files).
