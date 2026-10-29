@@ -86,8 +86,8 @@ dependencies:
 
 ## The AudioWorklet module
 
-The worklet module is built from Dart by a setup step, as `sqflite_common_ffi_web`
-builds its shared worker:
+The worklet module is built from Dart by a setup step, with
+[tekartik_web_worker_build](https://github.com/tekartik/app_build.dart/tree/main/packages/web_worker_build):
 
 ```
 dart run milomedy_midi_engine:setup_web_worklet [--dir web] [--force] [--verbose]
@@ -96,10 +96,12 @@ dart run milomedy_midi_engine:setup_web_worklet [--dir web] [--force] [--verbose
 - It compiles the worklet with dart2js in
   `.dart_tool/milomedy_midi_engine/web_worklet/`, and writes `web/midi_worklet.js`
   next to the page.
-- It builds again only when the package version, the sources of the engine and
-  the synths, the `web` package or the Dart SDK changed. Otherwise it only copies
-  the cached build.
-- An app can call it from its own tool in one line:
+- It builds again only when the Dart SDK or a package of the worklet changed
+  (the engine, the synths and their dependencies: their versions, and a hash of
+  the sources of a path package), as recorded in `meta.json` next to the
+  build. Otherwise it only copies the cached build.
+- An app can call it from its own tool in one line, `tool/dev_build_setup.dart`
+  being run by `run_ci` (dev_build >= 1.1.16) before the tests and the build:
 
 ```dart
 import 'package:milomedy_midi_engine/setup.dart';

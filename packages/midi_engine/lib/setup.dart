@@ -3,6 +3,9 @@
 library;
 
 export 'src/setup/web_worklet_setup.dart'
-    show MidiWebWorkletSetupResult, setupMidiWebWorklet;
+    show
+        MidiWebWorkletSetupResult,
+        setupMidiWebWorklet,
+        setupMidiWebWorkletMain;
 export 'src/worklet_js.dart'
     show midiWorkletDefaultUrl, midiWorkletProcessorName;
