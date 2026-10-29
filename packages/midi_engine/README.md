@@ -33,6 +33,18 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
 - **Metronome.** `midiMetronomeTimeline` builds one or more measures of clicks
   on the General MIDI wood blocks. Loop it to get an endless click.
   `midiMetronomeEngine` plays it with the Dart click, with no asset.
+- **Song.** `MidiSong` reads a MIDI file (format 0 or 1) through
+  `tekartik_midi`.
+  - Notes are paired from note on and note off. At the same tick, the note off
+    comes first.
+  - It keeps the other channel messages, the texts (lyrics, markers, copyright,
+    track names) as bytes decoded as UTF-8 or Windows-1252, and the time and key
+    signatures.
+  - `MidiTempoMap` converts ticks to seconds and back, with every tempo change
+    or with an SMPTE division. `barBeatAt` and `tickOf` give bars and beats.
+  - `toTimeline` builds what the engine plays. It takes a track per file track
+    and channel, and an instrument override per channel. Swap the result in
+    with `MidiPlayer.replace` to hear it at once.
 
 ## Setup
 
@@ -42,6 +54,15 @@ dependencies:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_engine
+```
+
+## midi_render
+
+Renders a MIDI file to WAV. Until the SoundFont synth exists, every program
+plays the accordion reed and the percussion channel plays the click.
+
+```
+dart run tekartik_midi_engine:midi_render [-o out.wav] [--rate 44100] [--speed 1] [--transpose 0] song.mid
 ```
 
 ## Examples
