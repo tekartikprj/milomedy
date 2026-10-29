@@ -34,5 +34,9 @@ jobs:
       run: |
         dart pub global activate --source git https://github.com/tekartik/ci.dart --git-path ci
         dart pub global run tekartik_ci:setup_portaudiolib
+    # The runner has no sound card: without a default ALSA device, PortAudio
+    # aborts in Pa_Initialize (ubuntu-24.04 images since 2026-10).
+    - name: Null ALSA output device
+      run: printf 'pcm.!default {\n  type null\n}\n' > ~/.asoundrc
     - run: dart pub global activate dev_build
     - run: dart pub global run dev_build:run_ci --recursive
