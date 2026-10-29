@@ -12,9 +12,9 @@ import 'package:tekartik_port_audio/src/port_audio_native_lib.dart';
 import 'package:test/test.dart';
 
 Future<void> main() async {
-  var portAudioNativeLib = await getPortAudioNativeLib();
   // GitHub runners have no sound card: since the 2026-10 ubuntu-24.04 images,
-  // the system PortAudio aborts in Pa_Initialize there, so run locally only.
+  // the system PortAudio aborts in Pa_Initialize there, and the CI does not
+  // install it, so run locally only (before loading the library).
   var skip = platformIo.runningOnGithub;
   if (skip) {
     test(
@@ -23,6 +23,7 @@ Future<void> main() async {
     );
     return;
   }
+  var portAudioNativeLib = await getPortAudioNativeLib();
 
   setUpAll(() async {
     var err = portAudioNativeLib.initialize();
