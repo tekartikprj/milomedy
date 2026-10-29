@@ -5,10 +5,12 @@
 ///
 /// On the web: the Web Audio output is in `web_audio.dart`, the AudioWorklet
 /// player in `web_worklet.dart`; `setup.dart` (dart:io) builds its worklet.
+/// On io: the isolate player is in `isolate_player.dart`.
 library;
 
 export 'src/engine.dart';
 export 'src/host.dart';
+export 'src/host_player.dart';
 export 'src/metronome.dart';
 export 'src/mixer.dart';
 export 'src/offline.dart';
@@ -16,6 +18,7 @@ export 'src/player.dart';
 export 'src/protocol.dart';
 export 'src/sink.dart';
 export 'src/song.dart';
+export 'src/stream_host.dart';
 export 'src/stream_sink.dart';
 export 'src/synth_spec.dart';
 export 'src/tempo_map.dart';

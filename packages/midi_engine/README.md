@@ -40,6 +40,18 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
     only, and a busy page never makes a gap.
   - `MidiEngineHost` and the messages of `protocol.dart` are pure Dart, tested on
     the VM.
+- **Isolate player** (`isolate_player.dart`, io). `MidiIsolatePlayer` runs the
+  engine in a background isolate.
+  - The isolate opens its output stream itself and feeds it every 5 ms, 0.1 s
+    ahead, with silence when nothing plays (`MidiStreamHost`).
+  - A slow frame on the UI isolate never makes an audio gap.
+  - The output is a `MidiPcmStream`: `mp_audio_stream` through
+    `milomedy_midi_audio_stream`, or any other.
+- **Players in common.** `MidiWorkletPlayer` and `MidiIsolatePlayer` extend
+  `MidiHostPlayer`.
+  - It sends numbered commands and ignores the state and position events that a
+    newer command has made stale.
+  - It tells the position heard, moved on by its clock and wrapped in a loop.
 - **Offline.** `midiRenderOffline` renders a whole timeline with the same mix
   and limiter as playback. `midiWavBytes` writes 16-bit WAV.
 - **Metronome.** `midiMetronomeTimeline` builds one or more measures of clicks

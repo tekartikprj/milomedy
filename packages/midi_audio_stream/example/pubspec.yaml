@@ -1,0 +1,40 @@
+name: milomedy_midi_audio_stream_example
+description: >-
+  Plays the MIDI engine through mp_audio_stream (a background isolate) or an
+  AudioWorklet (the web): a metronome and a waltz on accordion reeds.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  milomedy_midi_audio_stream:
+    path: ..
+  milomedy_midi_engine:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_engine
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_lints: ">=6.0.0"
+  tekartik_lints_flutter:
+    git:
+      url: https://github.com/tekartik/common_flutter.dart
+      path: packages/lints_flutter
+
+dependency_overrides:
+  milomedy_midi_engine:
+    path: ../../midi_engine
+  milomedy_midi_synth:
+    path: ../../midi_synth
+
+flutter:
+  uses-material-design: true

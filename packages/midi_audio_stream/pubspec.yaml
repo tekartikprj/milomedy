@@ -1,0 +1,35 @@
+name: milomedy_midi_audio_stream
+description: >-
+  The MIDI engine on mp_audio_stream (Flutter): the output of the isolate
+  player on Android, iOS, Linux, macOS and Windows, and midiCreatePlayer,
+  which picks the AudioWorklet player on the web.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  milomedy_midi_engine:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_engine
+  mp_audio_stream: ">=0.3.0"
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ">=6.0.0"
+  tekartik_lints_flutter:
+    git:
+      url: https://github.com/tekartik/common_flutter.dart
+      path: packages/lints_flutter
+
+dependency_overrides:
+  milomedy_midi_engine:
+    path: ../midi_engine
+  milomedy_midi_synth:
+    path: ../midi_synth

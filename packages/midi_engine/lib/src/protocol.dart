@@ -7,7 +7,8 @@ import 'dart:typed_data';
 
 import 'timeline.dart';
 
-/// The commands, from the player to the host.
+/// The commands, from the player to the host. Each one may have a `seq`
+/// number, which the host sends back with its state and position events.
 abstract final class MidiHostCommands {
   /// Loads a timeline (`timeline`), stopped at its start.
   static const load = 'load';
@@ -54,7 +55,8 @@ abstract final class MidiHostEvents {
   /// The state changed (`state`, `position`).
   static const state = 'state';
 
-  /// The song `position` at `time` of the output clock, playing at `speed`.
+  /// The song `position` at `time` of the output clock (no `time`: heard
+  /// when received), playing at `speed`.
   static const position = 'position';
 
   /// The answer to a `sync` command (`id`).

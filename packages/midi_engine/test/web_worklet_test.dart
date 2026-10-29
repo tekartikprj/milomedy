@@ -50,6 +50,8 @@ void main() {
     );
     var errors = <String>[];
     player.onError.listen(errors.add);
+    var states = <MidiPlayerState>[];
+    player.onState.listen(states.add);
     var timeline = midiMetronomeTimeline(bpm: 120, beats: 2);
     player
       ..load(timeline)
@@ -70,6 +72,8 @@ void main() {
     await player.sync();
     expect(errors, isEmpty);
     expect(player.state, MidiPlayerState.playing);
+    // The stopped event of the load, sent before the play, is stale.
+    expect(states, [MidiPlayerState.playing]);
     await player.close();
   });
 }

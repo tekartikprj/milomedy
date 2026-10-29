@@ -33,6 +33,10 @@ class MidiEngineHost {
   var _state = MidiPlayerState.stopped;
   var _untilReport = 0;
 
+  /// The sequence number of the last command handled, sent back with the
+  /// state and position events so that the player can tell the stale ones.
+  int? _seq;
+
   /// The frames of the fade out before a pause or a stop.
   final int _fadeFrames;
 
@@ -65,11 +69,13 @@ class MidiEngineHost {
       'type': MidiHostEvents.state,
       'state': state.name,
       'position': engine.position,
+      'seq': ?_seq,
     });
   }
 
   /// Handles a command; a failure is sent as an error event.
   void handle(Map<Object?, Object?> command) {
+    _seq = (command['seq'] as num?)?.toInt() ?? _seq;
     try {
       _handle(command);
     } catch (e) {
@@ -211,6 +217,7 @@ class MidiEngineHost {
         'position': engine.position,
         'time': time,
         'speed': engine.speed,
+        'seq': ?_seq,
       });
     }
     _untilReport -= frames;
