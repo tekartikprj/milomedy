@@ -15,7 +15,13 @@ void main() {
       midiWorkletDefaultUrl,
     ]);
     var module = await result.file.readAsString();
-    expect(module, contains("registerProcessor('$midiWorkletProcessorName'"));
+    // The dart2js output as it is, after its header: no JS around it.
+    expect(
+      module,
+      startsWith('// AudioWorklet module of milomedy_midi_engine'),
+    );
+    expect(module, contains(midiWorkletProcessorName));
+    expect(module, isNot(contains('extends AudioWorkletProcessor')));
     expect(module, isNot(contains('sourceMappingURL')));
     var again = await setupMidiWebWorklet(dir: 'test');
     expect(again.built, isFalse);

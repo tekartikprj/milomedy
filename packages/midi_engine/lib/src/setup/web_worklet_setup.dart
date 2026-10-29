@@ -95,6 +95,7 @@ void main() => midiWorkletMain();
       'compile',
       'js',
       '-O2',
+      '--no-source-maps',
       '--packages=${config.path}',
       '-o',
       compiled.path,
@@ -108,12 +109,10 @@ void main() => midiWorkletMain();
         result.exitCode,
       );
     }
-    // The source map stays in the build folder.
-    var dart2js = (await compiled.readAsString()).replaceAll(
-      RegExp(r'^//# sourceMappingURL=.*$', multiLine: true),
-      '',
+    // The dart2js output is the module: the processor registers itself.
+    await module.writeAsString(
+      midiWorkletModule(await compiled.readAsString(), version: version),
     );
-    await module.writeAsString(midiWorkletModule(dart2js, version: version));
     await metaFile.writeAsString(meta);
     stdout.writeln(
       'built $filename ($_package $version) in '

@@ -33,6 +33,10 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
   the audio thread.
   - The worklet itself is Dart compiled with dart2js. The page can be compiled
     with dart2js or dart2wasm.
+  - The processor registers itself from Dart, so the dart2js output is the
+    worklet module as it is, with no JS around it.
+    `registerProcessor` only needs a constructor whose prototype has `process`:
+    a Dart function builds the processor with `Reflect.construct`.
   - The page sends commands through the node's port. The worklet renders each
     128-frame block with the mixer and the limiter, and reports its state and
     position.

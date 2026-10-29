@@ -71,6 +71,10 @@ void main() {
     expect(peak, inExclusiveRange(0.05, midiLimit));
     await player.sync();
     expect(errors, isEmpty);
+    // An error in the worklet comes back as an error event.
+    player.sendCommand({'type': 'nope'});
+    await player.sync();
+    expect(errors.single, contains('nope'));
     expect(player.state, MidiPlayerState.playing);
     // The stopped event of the load, sent before the play, is stale.
     expect(states, [MidiPlayerState.playing]);
