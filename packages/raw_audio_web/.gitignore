@@ -2,3 +2,6 @@
 # Created by `dart pub`
 .dart_tool/
 /pubspec.lock
+
+# Built by tool/build_raw_worklet_dart.dart
+/example/raw_worklet_dart/processor.js*

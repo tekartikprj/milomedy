@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Simple Audio Delay (AudioWorklet, Dart)</title>
+    <!-- processor.js is built by: dart run tool/build_raw_worklet_dart.dart -->
+    <script defer src="main.dart.js"></script>
+</head>
+<body>
+<h1>Simple Audio Delay (AudioWorklet, Dart)</h1>
+<p>The microphone, through an AudioWorklet, heard 2 seconds later: the same as
+    <code>raw_worklet_js</code>, the page and the processor written in Dart.</p>
+<button id="start">Start</button>
+<p>Input level: <meter id="level" min="0" max="1" value="0"></meter>
+    <span id="status"></span></p>
+</body>
+</html>
