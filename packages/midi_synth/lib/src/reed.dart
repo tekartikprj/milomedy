@@ -312,7 +312,12 @@ class _ReedVoice implements DartVoice {
         var a = table[index];
         sample += a + (table[index + 1] - a) * fraction;
         var phase = _phases[r] + _increments[r];
-        _phases[r] = phase >= 1 ? phase - 1 : phase;
+        if (phase >= 1) {
+          // Its whole turns off: a rank at or above the sample rate (an
+          // increment of 1 or more) stays in the table.
+          phase -= phase.floorToDouble();
+        }
+        _phases[r] = phase;
       }
       out[i] += sample * level * voiceGain;
     }

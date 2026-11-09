@@ -62,6 +62,25 @@ void main() {
         expect(samples.any((s) => s.isNaN), isFalse);
       }
     });
+
+    test('ranks at or above the sample rate stay in the table', () {
+      // At 8000 Hz the piccolo rank of C8 (108) is 8372 Hz, of G9 (127)
+      // 25088 Hz: more than a turn of the table per frame.
+      var synth = DartSynth(
+        sampleRate: _rate,
+        instrument: ReedInstrument.treble(
+          register: ReedRegister.byId('piccolo'),
+        ),
+      );
+      for (var key = 100; key <= 127; key++) {
+        synth
+          ..reset()
+          ..send(midiNoteOn, key, 127);
+        var samples = _render(synth, 256);
+        expect(samples.any((s) => s.isNaN), isFalse, reason: '$key');
+        expect(_peak(samples), lessThan(1), reason: '$key');
+      }
+    });
   });
 
   group('dart synth', () {

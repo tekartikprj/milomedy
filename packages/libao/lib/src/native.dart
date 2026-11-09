@@ -320,8 +320,14 @@ class Libao {
   int defaultDriverId() => _defaultDriverId();
 
   /// Gets information about a particular driver.
+  ///
+  /// Throws an [ArgumentError] when there is no driver [id] (such as the -1
+  /// that [driverId] returns for an unknown name).
   Info driverInfo(int id) {
     final pointer = _driverInfo(id);
+    if (pointer == nullptr) {
+      throw ArgumentError.value(id, 'id', 'no such driver');
+    }
     return Info._(pointer.ref);
   }
 
@@ -431,17 +437,62 @@ class Libao {
     _freeOptions(options);
   }
 
-  /// Appends a [key] and [value] pair to an [options] linked list.
+  /// Appends a [key] and [value] pair to an [options] linked list that has
+  /// at least one option (start a list with [appendOptionTo]).
   ///
-  /// Returns `true` if successful.
+  /// Returns `true` if successful. Throws an [ArgumentError] when [options]
+  /// is `nullptr`: the list created would be lost.
   bool appendOption(Pointer<AoOption> options, String key, String value) {
-    final optionsPtr = calloc<Pointer<AoOption>>();
-    optionsPtr.value = Pointer.fromAddress(options.address);
-    return _appendOption(
-          optionsPtr,
-          key.toNativeUtf8(),
-          value.toNativeUtf8(),
-        ) ==
-        1;
+    if (options == nullptr) {
+      throw ArgumentError.value(
+        options,
+        'options',
+        'empty list, start it with appendOptionTo',
+      );
+    }
+    return _append(options, key, value).ok;
+  }
+
+  /// Appends a [key] and [value] pair to the [options] linked list
+  /// (`nullptr` for an empty list) and returns the head of the list: the
+  /// new option when [options] was empty, else [options]. Free the list
+  /// with [freeOptions].
+  ///
+  /// ```dart
+  /// var options = ao.appendOptionTo(nullptr, 'id', '0');
+  /// options = ao.appendOptionTo(options, 'debug', '');
+  /// ```
+  ///
+  /// Throws a [StateError] when libao could not add the option.
+  Pointer<AoOption> appendOptionTo(
+    Pointer<AoOption> options,
+    String key,
+    String value,
+  ) {
+    final (:ok, :head) = _append(options, key, value);
+    if (!ok) {
+      throw StateError('ao_append_option failed for $key');
+    }
+    return head;
+  }
+
+  ({bool ok, Pointer<AoOption> head}) _append(
+    Pointer<AoOption> options,
+    String key,
+    String value,
+  ) {
+    final head = calloc<Pointer<AoOption>>();
+    final nativeKey = key.toNativeUtf8();
+    final nativeValue = value.toNativeUtf8();
+    try {
+      head.value = options;
+      final ok = _appendOption(head, nativeKey, nativeValue) == 1;
+      return (ok: ok, head: head.value);
+    } finally {
+      // libao keeps its own copies of the key and the value.
+      malloc.free(nativeKey);
+      malloc.free(nativeValue);
+      calloc.free(head);
+    }
   }
 }
