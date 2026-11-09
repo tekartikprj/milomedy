@@ -137,6 +137,12 @@ class _RawAudioOutputPcmSound
   Future<void> feed(RawAudioData data) async {
     await _ready;
     var bytes = data.channelsBytes.first;
+    // flutter_pcm_sound sends the whole buffer of the bytes: a view (a
+    // chunk of a longer render) is copied.
+    if (bytes.offsetInBytes != 0 ||
+        bytes.lengthInBytes != bytes.buffer.lengthInBytes) {
+      bytes = Uint8List.fromList(bytes);
+    }
 
     await FlutterPcmSound.feed(
       PcmArrayInt16(bytes: byteDataFromUint8List(bytes)),

@@ -37,7 +37,7 @@ class MidiChord {
 
   /// The chord of [symbol] (`C`, `Am7`, `G7`, `Fmaj7`, `Bb`, `F#m7b5`...).
   factory MidiChord.parse(String symbol) {
-    var root = _names[symbol[0]];
+    var root = symbol.isEmpty ? null : _names[symbol[0]];
     if (root == null) {
       throw FormatException('not a chord: $symbol');
     }

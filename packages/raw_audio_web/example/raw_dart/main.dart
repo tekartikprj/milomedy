@@ -39,7 +39,8 @@ Future<void> streamAudio(AudioBuffer buffer, int chunkSize) async {
   write('info ${{'now': '${audioContext.currentTime}'}}');
   for (int i = 0; i < numChunks; i++) {
     final int start = i * chunkSize;
-    final int end = (i + 1) * chunkSize;
+    // The last chunk ends with the buffer.
+    final int end = math.min((i + 1) * chunkSize, buffer.length);
 
     // Create a new AudioBufferSourceNode for each chunk
     final AudioBufferSourceNode sourceNode = audioContext.createBufferSource();

@@ -243,11 +243,14 @@ class MidiSong {
     required this.lengthTicks,
   });
 
-  /// The song of the bytes of a MIDI file.
+  /// The song of the bytes of a MIDI file: a [FormatException] when they are
+  /// not one.
   factory MidiSong.fromBytes(List<int> bytes) =>
       MidiSong.fromFile(FileParser.dataFile(bytes)!);
 
-  /// The song of [file]. Format 2 (independent sequences) is refused.
+  /// The song of [file]. Format 2 (independent sequences) is refused
+  /// ([UnsupportedError]). A tempo of 0, a time signature of 0 beats or of
+  /// no note value are ignored.
   factory MidiSong.fromFile(MidiFile file) {
     if (file.fileFormat == 2) {
       throw UnsupportedError('MIDI file format 2 is not supported');
@@ -316,12 +319,17 @@ class MidiSong {
         }
       } else if (event is MetaEvent) {
         var data = event.data;
+        // A tempo of 0 (a song in no time) and a time signature of 0 beats
+        // or of no note value (2^32 and more: 0 on the web) are ignored, as
+        // the too short ones.
         switch (event.metaCommand) {
-          case MetaEvent.metaTempo when data.length >= 3:
+          case MetaEvent.metaTempo
+              when data.length >= 3 && (data[0] | data[1] | data[2]) != 0:
             tempos.add(
               MidiTempo(item.tick, (data[0] << 16) | (data[1] << 8) | data[2]),
             );
-          case MetaEvent.metaTimeSig when data.length >= 2:
+          case MetaEvent.metaTimeSig
+              when data.length >= 2 && data[0] > 0 && data[1] < 32:
             timeSignatures.add(
               MidiTimeSignature(item.tick, data[0], 1 << data[1]),
             );

@@ -54,6 +54,7 @@ void main() {
     expect(MidiChord.parse('Am').tones(60, 72), [60, 64, 69, 72]);
     expect(() => MidiChord.parse('H7'), throwsFormatException);
     expect(() => MidiChord.parse('Cxyz'), throwsFormatException);
+    expect(() => MidiChord.parse(''), throwsFormatException);
   });
 
   test('random: the same everywhere', () {

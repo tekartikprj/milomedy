@@ -22,7 +22,7 @@ ones.
 
 ## Guidelines
 
-* Dependency (git, private repo, not on pub.dev):
+* Dependency (git, public repo, not on pub.dev):
   ```yaml
   dependencies:
     tekartik_raw_audio_pcm_sound:
@@ -67,14 +67,19 @@ ones.
   `FlutterPcmSound.release()` yourself by depending on `flutter_pcm_sound`
   directly.
 * Byte order: the plugin sends the bytes untouched and reads them as
-  host-endian 16 bit samples — little-endian on every supported device. But
-  `RawAudioData.fromInt16List(samples)` packs **big-endian**, and so do
-  `pcm16GenerateSineWaveAudioData` / `pcm16GenerateExampleAudioData` from
-  `package:tekartik_raw_audio/generator.dart`: fed as is they play as noise.
-  Build the bytes with `ByteData.setInt16(offset, value, Endian.little)` and
-  `RawAudioData.fromChannelsBytes(channelsBytes: [bytes])`, which is also
+  host-endian 16 bit samples — little-endian on every supported device.
+  `RawAudioData.fromInt16List(samples)` and the generators
+  (`pcm16GenerateSineWaveAudioData` / `pcm16GenerateExampleAudioData` from
+  `package:tekartik_raw_audio/generator.dart`) pack little-endian: feed them
+  as is. Bytes built by hand must be little-endian
+  (`ByteData.setInt16(offset, value, Endian.little)` and
+  `RawAudioData.fromChannelsBytes(channelsBytes: [bytes])`), which is also
   what libraries that render into an `ArrayInt16`-style buffer already give
-  you.
+  you. (Before 2026-11-09 `fromInt16List` and the generators were
+  big-endian: drop any byte swap written for them.)
+* A chunk given as a view (`Uint8List.sublistView(rendered, start, end)`) is
+  copied before it is sent: the plugin itself sends the whole buffer behind
+  a view.
 * Channels: `feed` only sends `data.channelsBytes.first` to the platform. Mono
   (`channelCount: 1`) is the straightforward case. For `channelCount: 2` the
   platform expects **interleaved** L/R samples in that single buffer — build
@@ -90,11 +95,13 @@ ones.
 * Keep audio generation out of the widget tree: the callback runs on the UI
   isolate, so keep it short (copy an existing buffer, render a few hundred
   frames), and do heavy synthesis in an isolate.
-* Testing: this package needs a device. Write your generation code against
+* Testing: sound needs a device. Write your generation code against
   `RawAudioManager`/`RawAudioOutput`, unit test it with `RawAudioManagerMemory`
   (`package:tekartik_raw_audio/raw_audio_memory.dart`) or capture a file with
   `RawAudioManagerWav` (`tekartik_raw_audio_wav`), and inject
-  `rawAudioManagerPcmSound` only in the app.
+  `rawAudioManagerPcmSound` only in the app. What is sent to the platform can
+  be checked in a `flutter test` by mocking the `flutter_pcm_sound/methods`
+  channel (see `test/raw_audio_pcm_sound_test.dart`).
 
 ## Examples
 
@@ -102,19 +109,8 @@ ones.
 
 ```dart
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:tekartik_raw_audio_pcm_sound/raw_audio_pcm_sound.dart';
-
-/// Little endian pcm16 bytes, the order the platform expects.
-Uint8List pcm16LeBytes(List<int> samples) {
-  var bytes = Uint8List(samples.length * 2);
-  var byteData = ByteData.view(bytes.buffer);
-  for (var i = 0; i < samples.length; i++) {
-    byteData.setInt16(i * 2, samples[i], Endian.little);
-  }
-  return bytes;
-}
 
 /// A 440Hz beep of [duration].
 Future<void> beep({Duration duration = const Duration(seconds: 1)}) async {
@@ -128,9 +124,8 @@ Future<void> beep({Duration duration = const Duration(seconds: 1)}) async {
     options: RawAudioOutputOptions(sampleRate: sampleRate, channelCount: 1),
   );
   await output.play();
-  await output.feed(
-    RawAudioData.fromChannelsBytes(channelsBytes: [pcm16LeBytes(samples)]),
-  );
+  // Little-endian pcm16, the order the platform expects.
+  await output.feed(RawAudioData.fromInt16List(samples));
 }
 ```
 

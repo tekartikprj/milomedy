@@ -151,6 +151,14 @@ class MidiEngineHost {
         if (_state == MidiPlayerState.playing) {
           engine.seek(position);
           _untilReport = 0;
+          if (_fadeLeft > 0) {
+            // A pause or a stop fading out: it ends paused there.
+            _afterFade = () {
+              engine.silence();
+              engine.seek(position);
+              _setState(MidiPlayerState.paused);
+            };
+          }
         } else {
           engine.silence();
           engine.seek(position);

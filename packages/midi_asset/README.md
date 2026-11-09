@@ -8,6 +8,33 @@ on channel 10) to test a player or to play with any General MIDI SoundFont.
 The songs are written in code. The files in `lib/midi/` are what this code makes,
 and the same bytes come out on the VM, dart2js and dart2wasm.
 
+## Getting started
+
+Not on pub.dev, a git dependency (pure Dart, every platform):
+
+```yaml
+dependencies:
+  milomedy_midi_asset:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_asset
+```
+
+```dart
+import 'package:milomedy_midi_asset/midi_asset.dart';
+
+void main() {
+  for (var song in midiAssetSongs) {
+    print('${song.id}: ${song.title} (${song.style}), ${song.instruments}');
+  }
+  // The bytes of a MIDI file, made in code: no asset to load.
+  var bytes = midiAssetSong('bossa_nova')!.toBytes();
+  print('bossa_nova.mid: ${bytes.length} bytes');
+}
+```
+
+## The songs
+
 | Id | Title | Style | Instruments | Length |
 |---|---|---|---|---|
 | `rock_anthem` | Rock Anthem | rock | drums, bass, distortion guitar, rock organ, lead guitar | 36 s |
@@ -31,19 +58,10 @@ and the same bytes come out on the VM, dart2js and dart2wasm.
 | `piano_waltz` | Piano Waltz | waltz | piano | 24 s |
 | `piano_ballad` | Piano Ballad | ballad | piano | 57 s |
 
-## Setup
-
-```yaml
-dependencies:
-  milomedy_midi_asset:
-    git:
-      url: https://github.com/tekartikprj/milomedy
-      path: packages/midi_asset
-```
-
 ## Use
 
-In code, on any platform:
+In code, on any platform, played with `milomedy_midi_engine` (a dependency
+of its own):
 
 ```dart
 var asset = midiAssetSong('bossa_nova')!;

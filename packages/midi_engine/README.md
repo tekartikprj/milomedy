@@ -3,6 +3,62 @@
 A MIDI engine in pure Dart (VM, dart2js, dart2wasm), taken from accordelio's
 sound engine and generalized from its four parts to tracks and MIDI channels.
 
+## Getting started
+
+Not on pub.dev, a git dependency:
+
+```yaml
+dependencies:
+  milomedy_midi_engine:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_engine
+```
+
+Render a metronome to a WAV file (VM, no sound card needed):
+
+```dart
+import 'dart:io';
+
+import 'package:milomedy_midi_engine/midi_engine.dart';
+
+Future<void> main() async {
+  const sampleRate = 44100;
+  var engine = midiMetronomeEngine(sampleRate: sampleRate);
+  var timeline = midiMetronomeTimeline(bpm: 100, measures: 2);
+  var samples = midiRenderOffline(engine, timeline); // interleaved stereo
+  await File(
+    'metronome.wav',
+  ).writeAsBytes(midiWavBytes(samples, sampleRate: sampleRate));
+}
+```
+
+A MIDI file is read with `MidiSong.fromBytes(bytes)` (a `FormatException`
+for a bad file) and played with `song.toTimeline()`; the instruments are the
+synths of `milomedy_midi_synth` (`DartSynth`), one per track.
+
+| Library | Platforms | What |
+|---|---|---|
+| `midi_engine.dart` | all | timeline, engine, mixer, `MidiPlayer`, offline, WAV, metronome, `MidiSong` |
+| `web_audio.dart` | web | `MidiWebAudioSink`, the output of a `MidiPlayer` |
+| `web_worklet.dart` | web | `MidiWorkletPlayer`, the engine in an AudioWorklet (module built by `setup_web_worklet`) |
+| `isolate_player.dart` | io | `MidiIsolatePlayer`, the engine in an isolate, on a raw stream (`milomedy_midi_audio_stream`) |
+| `setup.dart` | io (a tool) | builds the AudioWorklet module |
+
+Common mistakes:
+
+* A web page plays only after a user gesture: call `play()` from a click.
+* The engine, its synths and the output must share one sample rate
+  (`ArgumentError` otherwise): use the output's (`MidiWebAudioSink.sampleRate`).
+* A timeline track without a synth plays nothing (its events are ignored).
+* `MidiPlayer` renders on the main isolate, a little ahead: a busy UI can
+  make gaps. In an app prefer `MidiWorkletPlayer` (web) or
+  `MidiIsolatePlayer` (io).
+* `midiRenderOffline` holds the whole song in memory (10 minutes of stereo
+  at 44.1 kHz: 212 MB).
+
+## What is in it
+
 - **Timeline.** `MidiTimeline` holds notes (start, duration, key, velocity,
   track, channel) and channel messages (controllers, programs, pitch bend), in
   seconds. A MIDI file, a score, a sequencer project or a generated pattern
@@ -73,16 +129,6 @@ sound engine and generalized from its four parts to tracks and MIDI channels.
   - `toTimeline` builds what the engine plays. It takes a track per file track
     and channel, and an instrument override per channel. Swap the result in
     with `MidiPlayer.replace` to hear it at once.
-
-## Setup
-
-```yaml
-dependencies:
-  milomedy_midi_engine:
-    git:
-      url: https://github.com/tekartikprj/milomedy
-      path: packages/midi_engine
-```
 
 ## The AudioWorklet module
 

@@ -319,6 +319,28 @@ void main() {
       expect(_peak(host.render(0.5)), 0);
     });
 
+    test('a seek while a pause or a stop fades out: paused there', () {
+      for (var command in [MidiHostCommands.pause, MidiHostCommands.stop]) {
+        var host = _Host([MidiSynthSpec.metronome]);
+        host
+          ..command(MidiHostCommands.load, {
+            'timeline': midiTimelineToMap(_clicks()),
+          })
+          ..command(MidiHostCommands.play)
+          ..render(0.5)
+          // As player.pause(); player.seek(2.5): both before the next block.
+          ..command(command)
+          ..command(MidiHostCommands.seek, {'position': 2.5})
+          ..render(0.1);
+        var state = host.ofType(MidiHostEvents.state).last;
+        expect(state['state'], 'paused', reason: command);
+        expect(state['position'], 2.5, reason: command);
+        // Plays on from there: the click at 3 s.
+        host.command(MidiHostCommands.play);
+        expect(_onsets(host.render(1)), [_rate ~/ 2 + 1], reason: command);
+      }
+    });
+
     test('loop, speed, mix', () {
       var host = _Host([MidiSynthSpec.metronome]);
       host

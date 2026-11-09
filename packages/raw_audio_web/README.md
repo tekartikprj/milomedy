@@ -1,11 +1,9 @@
-## Setup
+# tekartik_raw_audio_web
 
-```yaml
-  tekartik_raw_audio_web:
-    git:
-      url: https://github.com/tekartikprj/milomedy
-      path: packages/raw_audio_web
-```
+Web Audio experiments: raw audio played and captured in a browser, with
+plain JS and with Dart (`package:web`). Examples only, there is no library to
+depend on: for a raw audio output API see `tekartik_raw_audio` and its
+backends in this repository.
 
 ## Examples
 
@@ -25,7 +23,12 @@ The microphone, heard 2 seconds later:
   as it is. Build it first with `dart run tool/build_raw_worklet_dart.dart`, into
   `processor.js` (git-ignored). build_runner's development compiler cannot make a
   worklet module.
-- `example/raw_dart`: Dart.
+
+Played from Dart:
+
+- `example/raw_dart`: a C major scale made in Dart, played whole ("play 3s")
+  or streamed as chunks, one AudioBufferSourceNode each ("play 60s"), from a
+  test menu.
 
 Serve them with `dart run build_runner serve example:8080`, or, for the plain JS
 ones, with any static server, for example

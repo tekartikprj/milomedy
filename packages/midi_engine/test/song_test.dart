@@ -209,6 +209,29 @@ void main() {
       expect(song.copyright, isNull);
     });
 
+    test('bad time signatures and a tempo of 0 are ignored', () {
+      // 0 beats, a note value of 2^64 (0 as an int), of 2^255.
+      for (var (top, power) in [(0, 2), (3, 64), (3, 255)]) {
+        var song = _song([
+          _track([
+            (0, TimeSigEvent.topBottom(3, 4)),
+            (0, MetaEvent(MetaEvent.metaTempo, [0, 0, 0])),
+            (_ppq * 3, MetaEvent(MetaEvent.metaTimeSig, [top, power, 24, 8])),
+            (_ppq * 3, NoteOnEvent(0, 60, 100)),
+            (_ppq * 7, NoteOffEvent(0, 60, 0)),
+          ]),
+        ]);
+        expect(song.timeSignatures.map((signature) => '$signature'), [
+          'MidiTimeSignature(0, 3/4)',
+        ]);
+        // 120 bpm.
+        expect(song.duration, 3.5);
+        expect(song.barBeatAt(song.tickAt(3)), const MidiBarBeat(2, 0));
+        expect(song.barBeatAt(_ppq * 7), const MidiBarBeat(2, 1));
+        expect(song.tickOf(2), _ppq * 6);
+      }
+    });
+
     test('SMPTE division: the tempo ignored', () {
       var file = MidiFile()..setFrameDivision(25, 40);
       file.addTrack(
