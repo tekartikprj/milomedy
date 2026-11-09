@@ -19,8 +19,9 @@ description: >-
 frames to an audio output: a `RawAudioManager` creates `RawAudioOutput`s and
 you `feed` them `RawAudioData`. This package ships the API, an in-memory
 backend and sine generators; real backends are the sibling packages
-`tekartik_raw_audio_pcm_sound` (Flutter, `flutter_pcm_sound`),
-`tekartik_raw_audio_wav` (wav files) and `tekartik_raw_audio_web`.
+`tekartik_raw_audio_pcm_sound` (Flutter, `flutter_pcm_sound`) and
+`tekartik_raw_audio_wav` (wav files); `tekartik_raw_audio_web` only holds web
+audio examples so far (no library).
 
 ## Guidelines
 
@@ -33,9 +34,9 @@ backend and sine generators; real backends are the sibling packages
         path: packages/raw_audio
   ```
   Backends use the same `url` with `path: packages/raw_audio_pcm_sound`
-  (`rawAudioManagerPcmSound`), `packages/raw_audio_wav`
-  (`RawAudioManagerWav`, `RawAudioOutputWav.wav`) or
-  `packages/raw_audio_web`; they re-export `raw_audio.dart`.
+  (`rawAudioManagerPcmSound`) or `packages/raw_audio_wav`
+  (`RawAudioManagerWav`, `RawAudioOutputWav.wav`); they re-export
+  `raw_audio.dart`.
 * Imports: `package:tekartik_raw_audio/raw_audio.dart` for `RawAudioData`,
   `RawAudioManager`, `RawAudioOutput`, `RawAudioOutputOptions`,
   `RawAudioOutputFeedOptions`, `RawAudioOnFeedCallback` (it also re-exports
@@ -47,17 +48,16 @@ backend and sine generators; real backends are the sibling packages
   exported: the only format is signed 16 bit PCM and
   `RawAudioOutputOptions()` defaults to 44100 Hz, 2 channels.
 * `RawAudioData` is planar: `channelsBytes` holds one `Uint8List` per
-  channel, 2 bytes per frame, and `frameCount` is
-  `channelsBytes.first.length ~/ 2`. Build it with
+  channel, 2 bytes per frame, **little-endian** signed 16 bit, and
+  `frameCount` is `channelsBytes.first.length ~/ 2`. Build it with
   `RawAudioData.fromChannelsBytes(channelsBytes: [left, right])` or, for a
-  single channel, `RawAudioData.fromInt16List(samples)` (packs with
-  `ByteData.setInt16`, big-endian by default). `subFrames(start, end)`
-  copies a frame range (`end` is clamped to `frameCount`).
+  single channel, `RawAudioData.fromInt16List(samples)` (packs
+  little-endian). `subFrames(start, end)` copies a frame range (`start` and
+  `end` are clamped to `0..frameCount`).
 * Backends pass the bytes through untouched (`pcm_sound` hands
   `channelsBytes.first` to the platform, `wav` decodes the bytes as
-  little-endian pcm16). When byte order matters, build the bytes yourself
-  with `ByteData.setInt16(offset, value, Endian.little)` and
-  `fromChannelsBytes`.
+  little-endian pcm16): bytes built by hand for `fromChannelsBytes` must be
+  little-endian too (`ByteData.setInt16(offset, value, Endian.little)`).
 * Channel counts must agree: `RawAudioOutputMemory.feed` reads
   `data.channelsBytes[i]` for each of the `options.channelCount` channels and
   throws `RangeError` when mono data is fed to a stereo output. The
@@ -208,8 +208,8 @@ void main() {
     );
     await output.feed(RawAudioData.fromInt16List([1, -1]));
     await output.feed(RawAudioData.fromInt16List([2]));
-    // fromInt16List packs big-endian.
-    expect(output.channelsBytes.first, [0, 1, 255, 255, 0, 2]);
+    // fromInt16List packs little-endian.
+    expect(output.channelsBytes.first, [1, 0, 255, 255, 2, 0]);
   });
 }
 ```

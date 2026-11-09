@@ -22,12 +22,13 @@ abstract class RawAudioData {
   /// Not always optimized
   List<Uint8List> get channelsBytes;
 
-  /// Create raw audio data from int16 list
+  /// Create raw audio data (one channel) from int16 samples, little-endian
+  /// pcm16 as every output reads it.
   factory RawAudioData.fromInt16List(List<int> data) {
     var bytes = Uint8List(data.length * 2);
     var byteData = bytes.buffer.asByteData();
     for (var i = 0; i < data.length; i++) {
-      byteData.setInt16(i * 2, data[i]);
+      byteData.setInt16(i * 2, data[i], Endian.little);
     }
     return RawAudioData.fromChannelsBytes(channelsBytes: [bytes]);
   }
@@ -44,7 +45,7 @@ class _RawAudioDataChannelsBytes implements RawAudioData {
   @override
   RawAudioData subFrames(int start, int end) {
     end = end.boundedMax(frameCount);
-    var startBytes = start * 2.boundedMin(0);
+    var startBytes = (start * 2).boundedMin(0);
     var endBytes = (end * 2).boundedMax(frameCount * 2);
 
     return RawAudioData.fromChannelsBytes(
