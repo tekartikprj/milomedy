@@ -9,21 +9,24 @@ import 'package:tekartik_port_audio/src/port_audio_native_lib.dart' as native;
 /// PortAudio error
 typedef PaError = int;
 
-/// PortAudio stream
+/// A PortAudio output stream (float 32 samples, blocking writes): [open],
+/// [start], [writeDoubles] again and again, [stop], [close].
 abstract class PortAudioOutputStream {
-  /// Open the stream
+  /// Opens the stream ([paErrorCodeStreamAlreadyOpened] when open).
   Future<int> open({required PortAudioOutputStreamParameters parameters});
 
-  /// Start the stream
+  /// Starts the stream, before writing.
   Future<int> start();
 
-  /// Stop the stream
+  /// Stops the stream once the pending samples are played.
   Future<int> stop();
 
-  /// Close the stream
+  /// Closes the stream (it can be opened again).
   Future<int> close();
 
-  /// Write doubles
+  /// Writes [buffer]: samples from -1 to 1, interleaved when there are
+  /// several channels (left, right, left...); completes once PortAudio took
+  /// them. [paErrorCodeOutputUnderflowed] is harmless (a gap was played).
   Future<int> writeDoubles(List<double> buffer);
 
   /// Get the stream info
@@ -223,24 +226,32 @@ class PortAudioOutputStreamParameters {
   });
 }
 
-/// PortAudio library
+/// The PortAudio library, its calls run in a worker isolate (the blocking
+/// writes never freeze the caller). Get it with [getPortAudioLib].
+///
+/// The calls return a PortAudio error code ([paErrorCodeNoError], 0, on
+/// success) instead of throwing.
 abstract class PortAudioLib {
-  /// Initialize the library
+  /// Initializes PortAudio, before any other call.
   Future<int> initialize();
 
-  /// Terminate the library
+  /// Terminates PortAudio and ends the worker isolate (the program cannot
+  /// exit before): once, at the end. The library cannot be used again in
+  /// the same process (the calls would never complete).
   Future<int> terminate();
 
-  /// Default stream
+  /// A new stream on the default output device, not opened: keep the
+  /// reference, each access creates another one.
   PortAudioOutputStream get defaultOutputStream;
 
-  /// Get the device count (< 0 means error)
+  /// The number of devices (< 0 means error).
   Future<int> getDeviceCount();
 
-  /// Get the device count (< 0 means error)
+  /// The index of the default output device (< 0 means error or none).
   Future<int> getDefaultOutputDevice();
 
-  /// Get the device info
+  /// The info of the device [index] (0 to [getDeviceCount] - 1); throws a
+  /// [StateError] when there is no such device.
   Future<PaDeviceInfo> getDeviceInfo(int index);
 }
 
@@ -404,8 +415,11 @@ class _PortAudioLib implements PortAudioLib {
 /// PortAudio library instance
 _PortAudioLib? _portAudioLib;
 
-/// Get the port audio library from a given path
-/// subsequent calls will return the same instance
+/// The PortAudio library of the process, loaded from [path] (the system
+/// one by default: `libportaudio.so` on Linux, MacPorts'
+/// `/opt/local/lib/libportaudio.dylib` on macOS, a dll downloaded to
+/// `.local/lib/` on Windows); later calls return the same instance, the
+/// first [path] wins.
 Future<PortAudioLib> getPortAudioLib({String? path}) async {
   _portAudioLib ??= _PortAudioLib(
     await native.getPortAudioNativeLib(path: path),

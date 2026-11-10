@@ -9,8 +9,9 @@ import 'package:mp_audio_stream/mp_audio_stream.dart';
 
 /// A [MidiPcmStream] on mp_audio_stream: miniaudio, bundled in the plugin.
 ///
-/// It has a single native stream: open one at a time, and push from one
-/// isolate only (the player's).
+/// It has a single native stream: open one at a time (close the old one
+/// before opening the next: closing it after would stop the device the new
+/// one plays on), and push from one isolate only (the player's).
 class MidiMpAudioStream implements MidiPcmStream {
   final AudioStream _stream;
 

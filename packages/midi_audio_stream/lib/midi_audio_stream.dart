@@ -19,7 +19,9 @@ export 'src/mp_audio_stream_output.dart'
 /// tracks. On the web, `setup_web_worklet` registers it in the worklet when
 /// the app depends on that package.
 ///
-/// On the web, call it after a user gesture.
+/// On the web, call it after a user gesture. On io, one player at a time:
+/// close the previous one first (mp_audio_stream has a single native
+/// stream).
 Future<MidiHostPlayer> midiCreatePlayer({
   required List<MidiSynthSpec> synths,
   String workletUrl = 'midi_worklet.js',

@@ -42,4 +42,17 @@ Future<void> main() async {
       }
     }
   });
+  test('getDeviceInfo of a device that does not exist', () async {
+    // PortAudio gives no info (NULL): a StateError, not a crash.
+    var count = await portAudioLib.getDeviceCount();
+    for (var index in [count, count + 10, -1]) {
+      await expectLater(
+        portAudioLib.getDeviceInfo(index),
+        throwsStateError,
+        reason: 'index $index',
+      );
+    }
+    // The worker still answers.
+    expect(await portAudioLib.getDeviceCount(), count);
+  }, timeout: const Timeout(Duration(seconds: 30)));
 }

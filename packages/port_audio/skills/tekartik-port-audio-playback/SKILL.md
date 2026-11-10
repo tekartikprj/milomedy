@@ -49,7 +49,8 @@ blocking `Pa_WriteStream` never freezes your main isolate.
   `paErrorCodeStreamNotOpened` (-998), `paErrorCodeStreamAlreadyOpened`
   (-997) and `paErrorCodeInvalidStream` (-999). `getDeviceCount()` and
   `getDefaultOutputDevice()` return the count/index or a negative error;
-  `getDeviceInfo` and `getInfo` throw `StateError` on failure.
+  `getDeviceInfo` (an index out of range, `-1` when there is no default
+  output device) and `getInfo` throw `StateError` on failure.
 * Sequence: `var lib = await getPortAudioLib(); await lib.initialize();`,
   `var stream = lib.defaultOutputStream;` (every getter access creates a new
   unopened stream object: keep the reference), `await stream.open(parameters:
@@ -58,14 +59,15 @@ blocking `Pa_WriteStream` never freezes your main isolate.
   `await stream.writeDoubles(samples)`, `await stream.stop()` (waits for the
   pending audio), `await stream.close()`, and finally `await lib.terminate()`.
 * `terminate()` also ends the worker isolate (aborting still-open streams
-  first). Call it once when the program is done: the singleton cannot be
-  re-initialized afterwards in the same process.
+  first). Call it once when the program is done: until then the worker keeps
+  the program alive (it does not exit), and afterwards the singleton cannot
+  be re-initialized in the same process (`getPortAudioLib()` returns the
+  same instance and its calls never complete).
 * Samples: `writeDoubles(List<double>)` takes float32 values in -1.0..1.0 and
-  completes once PortAudio consumed them. The list length is passed to
-  PortAudio as the frame count, so with `numChannels: 1` one value per frame.
-  With `numChannels > 1` the current implementation still uses the list
-  length as the frame count (it does not divide by the channel count): down
-  mix to mono until this is fixed. Write chunks of about `framesPerBuffer`
+  completes once PortAudio consumed them. With `numChannels > 1` the samples
+  are interleaved (left, right, left...): the frame count passed to
+  PortAudio is the list length divided by the channel count (a last
+  incomplete frame is dropped). Write chunks of about `framesPerBuffer`
   frames (a few thousand), never one huge list: each call copies the list to
   the isolate and to native memory.
 * `getWriteAvailable()` returns the frames writable without blocking (0 when
@@ -179,16 +181,9 @@ import 'package:wav/wav.dart';
 
 Future<void> playWav(String path) async {
   var wav = await Wav.readFile(path);
-  // Down mix to mono: writeDoubles counts one value per frame.
   var channels = wav.channels;
+  var numChannels = channels.length;
   var frameCount = channels.first.length;
-  var mono = List<double>.generate(frameCount, (i) {
-    var sum = 0.0;
-    for (var channel in channels) {
-      sum += channel[i];
-    }
-    return sum / channels.length;
-  });
 
   var lib = await getPortAudioLib();
   if (await lib.initialize() != paErrorCodeNoError) {
@@ -200,7 +195,7 @@ Future<void> playWav(String path) async {
     const chunk = 4096;
     await stream.open(
       parameters: PortAudioOutputStreamParameters(
-        numChannels: 1,
+        numChannels: numChannels,
         sampleRate: wav.samplesPerSecond.toDouble(),
         framesPerBuffer: chunk,
       ),
@@ -210,7 +205,11 @@ Future<void> playWav(String path) async {
       var end = i + chunk > frameCount ? frameCount : i + chunk;
       var available = await stream.getWriteAvailable();
       stdout.write('\r$available frames free, sending ${end - i}   ');
-      await stream.writeDoubles(mono.sublist(i, end));
+      // Interleaved: one sample per channel for each frame.
+      await stream.writeDoubles([
+        for (var frame = i; frame < end; frame++)
+          for (var channel in channels) channel[frame],
+      ]);
     }
     await stream.stop();
   } finally {
@@ -226,8 +225,11 @@ Future<void> playWav(String path) async {
   (`paErrorCodeStreamNotOpened`).
 * Treating the returned `int` as a boolean; compare with
   `paErrorCodeNoError`.
-* Writing interleaved stereo data as if the frame count were divided by the
-  channel count.
-* Calling `terminate()` and then trying to play again in the same process.
+* Writing the channels one after the other (all the left samples, then the
+  right ones) instead of interleaved.
+* Calling `terminate()` and then trying to play again in the same process,
+  or forgetting it (the program never exits).
+* Asking `getDeviceInfo` of `getDefaultOutputDevice()` without checking it
+  is not negative (no output device): a `StateError`.
 * Running it on the web or in an isolate-less environment: it needs
   `dart:ffi`, `dart:io` and `Isolate.spawn`.

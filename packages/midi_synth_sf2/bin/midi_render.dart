@@ -49,8 +49,14 @@ Future<void> main(List<String> arguments) async {
           soundFontPath = value();
         case '--rate':
           sampleRate = int.parse(value());
+          if (sampleRate <= 0) {
+            throw FormatException('--rate must be positive: $sampleRate');
+          }
         case '--speed':
           speed = double.parse(value());
+          if (!(speed > 0) || speed.isInfinite) {
+            throw FormatException('--speed must be positive: $speed');
+          }
         case '--transpose':
           transpose = int.parse(value());
         default:

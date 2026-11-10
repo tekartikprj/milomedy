@@ -53,6 +53,9 @@ const commandGetStreamTime = 14;
 /// Pa_GetStreamWriteAvailable
 const commandGetStreamWriteAvailable = 15;
 
+/// PortAudio paInvalidDevice.
+const _paInvalidDevice = -9996;
+
 /// Message response
 class MessageResponse {
   /// true on success
@@ -409,6 +412,12 @@ Future<void> workerIsolate(SendPort sendPort, {String? path}) async {
             var index = query.value;
 
             var infoPtr = portAudioNativeLib.getDeviceInfo(index);
+            if (infoPtr == nullptr) {
+              // Out of range (or not initialized): reading it would crash
+              // the process.
+              sendError(_paInvalidDevice);
+              break;
+            }
 
             var info = infoPtr.ref;
             var result = CommandGetDeviceInfoResult(
