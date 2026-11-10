@@ -1,10 +1,12 @@
 import 'dart:io';
 
+import 'package:process_run/shell.dart' show runExecutableArguments;
+
 /// Compiles the processor of example/raw_worklet_dart with dart2js: its
 /// output is the AudioWorklet module as it is (build_runner's development
 /// compiler, DDC, cannot make one).
 Future<void> main() async {
-  var result = await Process.run(Platform.resolvedExecutable, [
+  var result = await runExecutableArguments(Platform.resolvedExecutable, [
     'compile',
     'js',
     '-O2',
