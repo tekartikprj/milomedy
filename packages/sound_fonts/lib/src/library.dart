@@ -3,6 +3,7 @@
 /// the default one, and a built-in fallback.
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -121,12 +122,19 @@ class MidiSoundFontLibrary {
 
   final http.Client? _client;
 
-  /// The index, read once.
-  Future<Map<String, Object?>>? _index;
+  // No future is kept once complete: one complete calls back through the
+  // zone it was made in, a library used in two zones (the real and the fake
+  // async ones of a widget test) would wait for the other one.
 
-  /// The last change: the index is read, changed and written back across
-  /// awaits, changes run one after the other.
-  Future<void> _lastChange = Future<void>.value();
+  /// The index, once read.
+  Map<String, Object?>? _index;
+
+  /// The first read of the index, while it runs.
+  Future<Map<String, Object?>>? _reading;
+
+  /// The last change, while it runs: the index is read, changed and written
+  /// back across awaits, changes run one after the other.
+  Future<void>? _lastChange;
 
   /// A library in [path] of [fileSystem] (`fileSystemDefault` of fs_shim:
   /// files on io, IndexedDB on the web), downloading with [client].
@@ -155,19 +163,21 @@ class MidiSoundFontLibrary {
   File _file(String id) =>
       fileSystem.file(fileSystem.path.join(path, '$id.sf2'));
 
-  /// The index, read once (two first reads at once share it).
-  Future<Map<String, Object?>> _load() {
-    var index = _index ??= _readIndex();
-    // A failed read is tried again next time.
-    index.then<void>(
-      (_) {},
-      onError: (_) {
-        if (identical(_index, index)) {
-          _index = null;
-        }
-      },
-    );
-    return index;
+  /// The index, read once (two first reads at once share it, a failed read
+  /// is tried again next time).
+  Future<Map<String, Object?>> _load() async {
+    var index = _index;
+    if (index != null) {
+      return index;
+    }
+    var reading = _reading ??= _readIndex();
+    try {
+      return _index ??= await reading;
+    } finally {
+      if (identical(_reading, reading)) {
+        _reading = null;
+      }
+    }
   }
 
   Future<Map<String, Object?>> _readIndex() async {
@@ -180,10 +190,22 @@ class MidiSoundFontLibrary {
   }
 
   /// Runs [change] after the changes started before it.
-  Future<T> _change<T>(Future<T> Function() change) {
-    var result = _lastChange.then((_) => change());
-    _lastChange = result.then<void>((_) {}, onError: (_) {});
-    return result;
+  Future<T> _change<T>(Future<T> Function() change) async {
+    var previous = _lastChange;
+    // Sync: the next change, waiting, goes on in its own zone at once.
+    var done = Completer<void>.sync();
+    _lastChange = done.future;
+    try {
+      if (previous != null) {
+        await previous;
+      }
+      return await change();
+    } finally {
+      if (identical(_lastChange, done.future)) {
+        _lastChange = null;
+      }
+      done.complete();
+    }
   }
 
   Future<void> _save(Map<String, Object?> index) async {

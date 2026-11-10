@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:fs_shim/fs_memory.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -192,6 +194,36 @@ void main() {
       ]);
       expect(await lib.defaultId(), 'tiny');
     }
+  });
+
+  test('used in another zone: the fake async one of a widget test', () async {
+    // A widget test makes the library in its real zone (tester.runAsync),
+    // its widgets use it in the fake async zone, whose microtasks run when
+    // pumped only. A future already complete calls back through the zone
+    // it was made in: one kept from the real zone (the index, the last
+    // change) answered the fake zone at the next tester.runAsync only.
+    var imported = await library.import(copy);
+    fakeAsync((async) {
+      List<MidiSoundFontEntry>? entries;
+      Object? refused;
+      String? defaultId;
+      unawaited(library.list().then((value) => entries = value));
+      unawaited(
+        library.setDefault('nope').catchError((Object error) {
+          refused = error;
+        }),
+      );
+      unawaited(
+        library
+            .setDefault(imported.id)
+            .then((_) => library.defaultId())
+            .then((value) => defaultId = value),
+      );
+      async.elapse(const Duration(seconds: 1));
+      expect(entries?.map((entry) => entry.id), ['tiny', imported.id]);
+      expect(refused, isArgumentError);
+      expect(defaultId, imported.id);
+    });
   });
 
   test('GeneralUser GS, from the url given', () {
