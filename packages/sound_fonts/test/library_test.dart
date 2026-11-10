@@ -147,6 +147,51 @@ void main() {
       expect((await library.ensure(source())).id, 'copy');
       expect(requests, 1);
     });
+
+    test('ensure: the same file imported first is not downloaded', () async {
+      var library = libraryWith(client(copy));
+      var imported = await library.import(copy);
+      var checked = source(size: copy.length, sha1: gitBlobSha1(copy));
+      for (var i = 0; i < 3; i++) {
+        expect((await library.ensure(checked)).id, imported.id);
+      }
+      // Was downloaded at every call (the duplicate found, never kept).
+      expect(requests, 0);
+    });
+  });
+
+  test('changes at once: none lost', () async {
+    var a = renamedSoundFontBytes('Tiny AAAA');
+    var b = renamedSoundFontBytes('Tiny BBBB');
+    var c = renamedSoundFontBytes('Tiny CCCC');
+    var first = await library.import(c);
+    var entries = await Future.wait([
+      library.import(a),
+      library.import(b),
+      library.setDefault(first.id).then((_) => first),
+    ]);
+    var ids = entries.map((entry) => entry.id).toSet();
+    // Was one entry lost (the index written over), its file left alone.
+    expect((await library.list()).map((entry) => entry.id).toSet(), {
+      'tiny',
+      ...ids,
+    });
+    var again = MidiSoundFontLibrary(fileSystem: fileSystem, path: 'sf');
+    expect((await again.list()), hasLength(4));
+    expect(await again.defaultId(), first.id);
+    await Future.wait([
+      library.delete(entries[0].id),
+      library.delete(first.id),
+    ]);
+    // A library reads the files once: a new one sees the deletes.
+    again = MidiSoundFontLibrary(fileSystem: fileSystem, path: 'sf');
+    for (var lib in [library, again]) {
+      expect((await lib.list()).map((entry) => entry.id), [
+        'tiny',
+        entries[1].id,
+      ]);
+      expect(await lib.defaultId(), 'tiny');
+    }
   });
 
   test('GeneralUser GS, from the url given', () {

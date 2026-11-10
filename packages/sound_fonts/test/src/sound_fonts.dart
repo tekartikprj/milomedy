@@ -27,3 +27,24 @@ String gitBlobSha1(Uint8List bytes) => sha1.convert([
   ...utf8.encode('blob ${bytes.length}\u0000'),
   ...bytes,
 ]).toString();
+
+/// [copySoundFontBytes] named [name] (9 characters, as 'Tiny copy').
+Uint8List renamedSoundFontBytes(String name) {
+  var bytes = copySoundFontBytes();
+  var from = ascii.encode('Tiny copy');
+  var to = ascii.encode(name);
+  if (to.length != from.length) {
+    throw ArgumentError.value(name, 'name', 'must be 9 characters');
+  }
+  for (var i = 0; i + from.length <= bytes.length; i++) {
+    var match = true;
+    for (var j = 0; j < from.length && match; j++) {
+      match = bytes[i + j] == from[j];
+    }
+    if (match) {
+      bytes.setRange(i, i + to.length, to);
+      return bytes;
+    }
+  }
+  throw StateError('name not found');
+}

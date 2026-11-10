@@ -120,7 +120,13 @@ class MidiSoundFontLibrary {
   final String path;
 
   final http.Client? _client;
-  Map<String, Object?>? _index;
+
+  /// The index, read once.
+  Future<Map<String, Object?>>? _index;
+
+  /// The last change: the index is read, changed and written back across
+  /// awaits, changes run one after the other.
+  Future<void> _lastChange = Future<void>.value();
 
   /// A library in [path] of [fileSystem] (`fileSystemDefault` of fs_shim:
   /// files on io, IndexedDB on the web), downloading with [client].
@@ -149,19 +155,35 @@ class MidiSoundFontLibrary {
   File _file(String id) =>
       fileSystem.file(fileSystem.path.join(path, '$id.sf2'));
 
-  Future<Map<String, Object?>> _load() async {
-    var index = _index;
-    if (index != null) {
-      return index;
-    }
+  /// The index, read once (two first reads at once share it).
+  Future<Map<String, Object?>> _load() {
+    var index = _index ??= _readIndex();
+    // A failed read is tried again next time.
+    index.then<void>(
+      (_) {},
+      onError: (_) {
+        if (identical(_index, index)) {
+          _index = null;
+        }
+      },
+    );
+    return index;
+  }
+
+  Future<Map<String, Object?>> _readIndex() async {
     var file = _indexFile;
     if (await file.exists()) {
-      index = (jsonDecode(await file.readAsString()) as Map)
+      return (jsonDecode(await file.readAsString()) as Map)
           .cast<String, Object?>();
-    } else {
-      index = {'soundFonts': <Object?>[]};
     }
-    return _index = index;
+    return {'soundFonts': <Object?>[]};
+  }
+
+  /// Runs [change] after the changes started before it.
+  Future<T> _change<T>(Future<T> Function() change) {
+    var result = _lastChange.then((_) => change());
+    _lastChange = result.then<void>((_) {}, onError: (_) {});
+    return result;
   }
 
   Future<void> _save(Map<String, Object?> index) async {
@@ -200,19 +222,26 @@ class MidiSoundFontLibrary {
       (await _load())['default'] as String? ?? builtInId;
 
   /// Sets the default SoundFont.
-  Future<void> setDefault(String id) async {
+  Future<void> setDefault(String id) => _change(() async {
     if (await entry(id) == null) {
       throw ArgumentError.value(id, 'id', 'not in the library');
     }
     var index = await _load();
     index['default'] = id;
     await _save(index);
-  }
+  });
 
   /// Adds the SoundFont [bytes] as [id]: read first (a file that is not a
   /// SoundFont is refused); the same bytes already there are not added
   /// again (the entry there is returned).
   Future<MidiSoundFontEntry> _add(
+    Uint8List bytes, {
+    required String id,
+    String? name,
+    MidiSoundFontSource? source,
+  }) => _change(() => _addNow(bytes, id: id, name: name, source: source));
+
+  Future<MidiSoundFontEntry> _addNow(
     Uint8List bytes, {
     required String id,
     String? name,
@@ -308,12 +337,33 @@ class MidiSoundFontLibrary {
   }
 
   /// SoundFont [source], downloaded first when not in the library yet: the
-  /// default SoundFont on first use.
+  /// default SoundFont on first use. Its file already there under another id
+  /// (imported) is found without a download when [source] gives its size
+  /// and git blob id; otherwise it is downloaded, then recognized.
   Future<MidiSoundFontEntry> ensure(
     MidiSoundFontSource source, {
     void Function(int received, int? total)? onProgress,
   }) async =>
-      await entry(source.id) ?? await download(source, onProgress: onProgress);
+      await entry(source.id) ??
+      await _sameFile(source) ??
+      await download(source, onProgress: onProgress);
+
+  /// The entry holding the file of [source] (its size and git blob id),
+  /// null when unknown.
+  Future<MidiSoundFontEntry?> _sameFile(MidiSoundFontSource source) async {
+    var size = source.size;
+    var gitBlobSha1 = source.gitBlobSha1;
+    if (size == null || gitBlobSha1 == null) {
+      return null;
+    }
+    for (var entry in await list()) {
+      if (entry.size == size &&
+          _gitBlobSha1(await read(entry.id)) == gitBlobSha1) {
+        return entry;
+      }
+    }
+    return null;
+  }
 
   /// Deletes SoundFont [id] (not the built-in one); the default goes back
   /// to the built-in one when it was the default.
@@ -321,23 +371,25 @@ class MidiSoundFontLibrary {
     if (id == builtInId) {
       throw ArgumentError.value(id, 'id', 'the built-in SoundFont stays');
     }
-    var index = await _load();
-    var entries = _entries(index);
-    if (!entries.any((entry) => entry.id == id)) {
-      return;
-    }
-    index['soundFonts'] = [
-      for (var entry in entries)
-        if (entry.id != id) entry._toMap(),
-    ];
-    if (index['default'] == id) {
-      index.remove('default');
-    }
-    await _save(index);
-    var file = _file(id);
-    if (await file.exists()) {
-      await file.delete();
-    }
+    await _change(() async {
+      var index = await _load();
+      var entries = _entries(index);
+      if (!entries.any((entry) => entry.id == id)) {
+        return;
+      }
+      index['soundFonts'] = [
+        for (var entry in entries)
+          if (entry.id != id) entry._toMap(),
+      ];
+      if (index['default'] == id) {
+        index.remove('default');
+      }
+      await _save(index);
+      var file = _file(id);
+      if (await file.exists()) {
+        await file.delete();
+      }
+    });
   }
 }
 
