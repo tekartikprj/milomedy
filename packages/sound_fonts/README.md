@@ -93,6 +93,34 @@ blob id).
 `midiGeneralUserGsUpstreamUrl`, the file in its repository at the commit of
 that version, is for development and tools.
 
+## SF3
+
+An SF3 is an SF2 whose samples are compressed, each one an Ogg Vorbis stream
+(the format of MuseScore, read by FluidSynth and SpessaSynth): GeneralUser GS
+takes 9 MB instead of 32. The synth reads SF2 only, so the library turns an
+SF3 into the SF2 it stands for when it is downloaded or imported
+(`midiSoundFontDecompress`, pure Dart through `milomedy_vorbis`), once: it
+keeps the SF2, and the SHA-256 of the SF3 in `originalSha256` (a second import
+of the same file is not decoded again). `onUnpack` tells the samples done.
+
+- GeneralUser GS: 920 samples, 4 s on the VM, 10 s in Chrome with dart2js
+  (the event loop runs between samples, 60 ms at most), 42 s with dart2wasm.
+- `midiGeneralUserGsSf3(url: ...)`: GeneralUser GS 2.0.3 in SF3 at Vorbis
+  quality 6, 9 110 502 bytes, `midiGeneralUserGsSf3Sha256`; its samples at a
+  median signal to noise ratio of 32 dB against the SF2 (10.8 dB for the
+  worst, a noise), the same frames and loops.
+- A catalog lists the SF3 apart (`compressedSoundFonts`): an app built before
+  SF3 reads `soundFonts` only. `sameAs` links the SF2 and the SF3 of the same
+  bank: an app offers one of them.
+- To make one (io, ffmpeg with libvorbis on the PATH):
+  `dart run tool/compress_sound_font.dart in.sf2 out.sf3 --quality 6`, which
+  checks the result (frames, loops) and prints the signal to noise ratios;
+  `package:milomedy_sound_fonts/sf3_ffmpeg.dart` in code. The same input
+  gives the same bytes (ffmpeg `+bitexact`).
+- `midiTinySoundFontSf3Bytes()`: the tiny SoundFont in SF3, for tests.
+- In a browser, by hand: copy an SF3 to `.local/benchmark/sound_font.sf3`,
+  then `dart test -p chrome test/sf3_web_test_manual.dart`.
+
 ## Good to know
 
 - Use one `MidiSoundFontLibrary` per folder: a library reads its index once,

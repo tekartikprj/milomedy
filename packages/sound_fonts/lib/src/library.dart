@@ -1,6 +1,7 @@
 /// The SoundFont library: the SoundFonts downloaded or imported, stored
 /// through fs_shim (files on io, IndexedDB on the web) with a JSON index,
-/// the default one, and a built-in fallback.
+/// the default one, and a built-in fallback. An SF3 (compressed samples) is
+/// stored as the SF2 it stands for, turned once when added.
 library;
 
 import 'dart:async';
@@ -12,6 +13,7 @@ import 'package:fs_shim/fs_shim.dart';
 import 'package:http/http.dart' as http;
 import 'package:milomedy_midi_synth_sf2/midi_synth_sf2.dart';
 
+import 'sf3.dart';
 import 'source.dart';
 
 /// A SoundFont of the library.
@@ -40,6 +42,10 @@ class MidiSoundFontEntry {
   /// The SHA-256 of its bytes (duplicates are refused).
   final String sha256;
 
+  /// The SHA-256 of the file it was made from, when that was an SF3 (its
+  /// bytes are the SF2 the SF3 stands for); null otherwise.
+  final String? originalSha256;
+
   /// Where it was downloaded from, null when imported or built in.
   final String? url;
 
@@ -56,6 +62,7 @@ class MidiSoundFontEntry {
     required this.size,
     required this.presetCount,
     required this.sha256,
+    this.originalSha256,
     this.copyright = '',
     this.author = '',
     this.comments = '',
@@ -71,6 +78,7 @@ class MidiSoundFontEntry {
         size: map['size']! as int,
         presetCount: map['presets']! as int,
         sha256: map['sha256']! as String,
+        originalSha256: map['originalSha256'] as String?,
         copyright: map['copyright'] as String? ?? '',
         author: map['author'] as String? ?? '',
         comments: map['comments'] as String? ?? '',
@@ -84,6 +92,7 @@ class MidiSoundFontEntry {
     'size': size,
     'presets': presetCount,
     'sha256': sha256,
+    'originalSha256': ?originalSha256,
     if (copyright.isNotEmpty) 'copyright': copyright,
     if (author.isNotEmpty) 'author': author,
     if (comments.isNotEmpty) 'comments': comments,
@@ -303,17 +312,26 @@ class MidiSoundFontLibrary {
     await _save(index);
   });
 
-  /// Adds the SoundFont [bytes] as [id]: read first (a file that is not a
-  /// SoundFont is refused); the same bytes already there are not added
-  /// again (the entry there is returned).
+  /// Adds the SoundFont [bytes] (an SF2) as [id]: read first (a file that
+  /// is not a SoundFont is refused); the same bytes already there are not
+  /// added again (the entry there is returned). [originalSha256]: the SF3
+  /// they were made from.
   Future<MidiSoundFontEntry> _add(
     Uint8List bytes, {
     required String id,
     String? name,
     MidiSoundFontSource? source,
     Uri? url,
+    String? originalSha256,
   }) => _change(
-    () => _addNow(bytes, id: id, name: name, source: source, url: url),
+    () => _addNow(
+      bytes,
+      id: id,
+      name: name,
+      source: source,
+      url: url,
+      originalSha256: originalSha256,
+    ),
   );
 
   Future<MidiSoundFontEntry> _addNow(
@@ -322,6 +340,7 @@ class MidiSoundFontLibrary {
     String? name,
     MidiSoundFontSource? source,
     Uri? url,
+    String? originalSha256,
   }) async {
     var soundFont = MidiSoundFont.fromBytes(bytes);
     var hash = sha256.convert(bytes).toString();
@@ -343,6 +362,7 @@ class MidiSoundFontLibrary {
       size: bytes.length,
       presetCount: soundFont.presets.length,
       sha256: hash,
+      originalSha256: originalSha256,
       copyright: soundFont.copyright,
       author: soundFont.author,
       comments: soundFont.comments,
@@ -360,11 +380,37 @@ class MidiSoundFontLibrary {
   }
 
   /// Imports the SoundFont [bytes] (a file picked, dropped, fetched), named
-  /// [name] (its INFO name by default).
-  Future<MidiSoundFontEntry> import(Uint8List bytes, {String? name}) {
+  /// [name] (its INFO name by default). An SF3 is turned into the SF2 it
+  /// stands for first (a few seconds: [onUnpack] tells its samples done out
+  /// of all), unless that file is in the library already.
+  Future<MidiSoundFontEntry> import(
+    Uint8List bytes, {
+    String? name,
+    void Function(int done, int total)? onUnpack,
+  }) async {
+    String? originalSha256;
+    if (midiSoundFontIsCompressed(bytes)) {
+      originalSha256 = sha256.convert(bytes).toString();
+      var known = await _fromOriginal(originalSha256);
+      if (known != null) {
+        return known;
+      }
+      bytes = await midiSoundFontDecompress(bytes, onProgress: onUnpack);
+    }
     var soundFont = MidiSoundFont.fromBytes(bytes);
-    return _add(bytes, id: _slug(name ?? soundFont.name), name: name);
+    return _add(
+      bytes,
+      id: _slug(name ?? soundFont.name),
+      name: name,
+      originalSha256: originalSha256,
+    );
   }
+
+  /// The entry made from the SF3 of SHA-256 [originalSha256], null when none.
+  Future<MidiSoundFontEntry?> _fromOriginal(String originalSha256) async =>
+      (await list())
+          .where((entry) => entry.originalSha256 == originalSha256)
+          .firstOrNull;
 
   /// How much a download keeps in memory before writing it to its part.
   static const _flushSize = 4 * 1024 * 1024;
@@ -389,7 +435,8 @@ class MidiSoundFontLibrary {
   }
 
   /// Downloads [source], with [onProgress] (bytes received, total when
-  /// known).
+  /// known). An SF3 is then turned into the SF2 it stands for, with
+  /// [onUnpack] (its samples done out of all).
   ///
   /// The locations are tried in order (`source.candidates`): the [soundServer]
   /// of the user first when the source has a path, its url, its mirrors.
@@ -405,6 +452,7 @@ class MidiSoundFontLibrary {
   Future<MidiSoundFontEntry> download(
     MidiSoundFontSource source, {
     void Function(int received, int? total)? onProgress,
+    void Function(int done, int total)? onUnpack,
     MidiSoundFontDownloadCancel? cancel,
     Uri? soundServer,
     Duration idleTimeout = const Duration(seconds: 30),
@@ -438,15 +486,21 @@ class MidiSoundFontLibrary {
         }
         MidiSoundFontEntry entry;
         try {
+          String? originalSha256;
+          if (midiSoundFontIsCompressed(bytes)) {
+            originalSha256 = sha256.convert(bytes).toString();
+            bytes = await midiSoundFontDecompress(bytes, onProgress: onUnpack);
+          }
           entry = await _add(
             bytes,
             id: source.id,
             name: source.name,
             source: source,
             url: url,
+            originalSha256: originalSha256,
           );
         } catch (e) {
-          // Not a SoundFont.
+          // Not a SoundFont (or an SF3 that does not decode).
           await deletePart(source.id);
           attempts.add(MidiSoundFontDownloadAttempt(url, e));
           continue;
@@ -583,6 +637,7 @@ class MidiSoundFontLibrary {
   Future<MidiSoundFontEntry> ensure(
     MidiSoundFontSource source, {
     void Function(int received, int? total)? onProgress,
+    void Function(int done, int total)? onUnpack,
     MidiSoundFontDownloadCancel? cancel,
     Uri? soundServer,
   }) async =>
@@ -591,6 +646,7 @@ class MidiSoundFontLibrary {
       await download(
         source,
         onProgress: onProgress,
+        onUnpack: onUnpack,
         cancel: cancel,
         soundServer: soundServer,
       );
@@ -601,7 +657,9 @@ class MidiSoundFontLibrary {
     var expectedSha256 = source.sha256;
     if (expectedSha256 != null) {
       for (var entry in await list()) {
-        if (entry.sha256 == expectedSha256) {
+        // An SF3 is kept as its SF2: the file it was made from.
+        if (entry.sha256 == expectedSha256 ||
+            entry.originalSha256 == expectedSha256) {
           return entry;
         }
       }

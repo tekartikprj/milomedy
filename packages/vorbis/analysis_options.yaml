@@ -1,0 +1,6 @@
+include: package:tekartik_lints/package.yaml
+
+analyzer:
+  errors:
+    # Vendored from vorbis_decoder: its internal classes are not documented.
+    public_member_api_docs: ignore

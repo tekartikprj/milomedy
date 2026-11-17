@@ -2,7 +2,8 @@ name: milomedy_sound_fonts
 description: >-
   The SoundFont library of the MIDI engine: downloads (with their size and
   hash checked), imports, storage through fs_shim (files on io, IndexedDB
-  on the web), the default SoundFont, a built-in fallback.
+  on the web), the default SoundFont, a built-in fallback; SF3 files
+  turned into SF2.
 version: 0.1.0
 publish_to: none
 
@@ -17,8 +18,17 @@ dependencies:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_synth_sf2
+  # sf3_ffmpeg.dart (io, tools): the temporary files, ffmpeg.
+  path: ">=1.9.0"
+  process_run: ">=1.2.0"
+  # SF3: the Ogg Vorbis samples decoded, pure Dart (io and the web).
+  milomedy_vorbis:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/vorbis
 
 dev_dependencies:
+  args: ">=2.7.0"
   build_runner: ">=2.15.0"
   build_web_compilers: ">=4.7.0"
   # A test: the library used in the fake async zone of a widget test.
@@ -37,3 +47,5 @@ dependency_overrides:
     path: ../midi_synth
   milomedy_midi_synth_sf2:
     path: ../midi_synth_sf2
+  milomedy_vorbis:
+    path: ../vorbis

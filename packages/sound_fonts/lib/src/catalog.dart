@@ -14,6 +14,10 @@ import 'source.dart';
 const midiSoundFontCatalogPath = 'public/sound_fonts/catalog.json';
 
 /// The SoundFonts an app offers, in the order shown.
+///
+/// The SF3 ones ([MidiSoundFontSource.compressed]) are in their own list of
+/// the JSON (`compressedSoundFonts`): an app that cannot read them (before
+/// 2026-11-17) never sees them.
 class MidiSoundFontCatalog {
   /// The catalog version written, the one read.
   static const formatVersion = 1;
@@ -34,13 +38,23 @@ class MidiSoundFontCatalog {
     Uri? base,
   }) {
     var soundFonts = <MidiSoundFontSource>[];
-    for (var item in json['soundFonts'] as List? ?? const []) {
-      if (item is! Map) {
-        continue;
-      }
-      var source = _sourceOrNull(item.cast<String, Object?>(), base: base);
-      if (source != null) {
-        soundFonts.add(source);
+    for (var (key, compressed) in [
+      ('compressedSoundFonts', true),
+      ('soundFonts', false),
+    ]) {
+      var items = json[key];
+      for (var item in items is List ? items : const []) {
+        if (item is! Map) {
+          continue;
+        }
+        var source = _sourceOrNull(
+          item.cast<String, Object?>(),
+          base: base,
+          compressed: compressed,
+        );
+        if (source != null) {
+          soundFonts.add(source);
+        }
       }
     }
     return MidiSoundFontCatalog(soundFonts);
@@ -49,6 +63,7 @@ class MidiSoundFontCatalog {
   static MidiSoundFontSource? _sourceOrNull(
     Map<String, Object?> map, {
     Uri? base,
+    bool compressed = false,
   }) {
     try {
       var path = map['path'] as String?;
@@ -75,17 +90,26 @@ class MidiSoundFontCatalog {
         licenceUrl: (map['licenceUrl'] ?? map['licencePath']) as String?,
         version: map['version'] as String?,
         presetCount: map['presets'] as int?,
+        compressed: compressed,
+        sameAs: map['sameAs'] as String?,
       );
     } catch (_) {
       return null;
     }
   }
 
-  /// The JSON of this catalog, read back by [MidiSoundFontCatalog.fromJson].
+  /// The JSON of this catalog, read back by [MidiSoundFontCatalog.fromJson]
+  /// (the SF3 ones first when read back).
   Map<String, Object?> toJson() => {
     'version': formatVersion,
-    'soundFonts': [
-      for (var source in soundFonts)
+    'soundFonts': _sourcesJson(compressed: false),
+    if (soundFonts.any((source) => source.compressed))
+      'compressedSoundFonts': _sourcesJson(compressed: true),
+  };
+
+  List<Map<String, Object?>> _sourcesJson({required bool compressed}) => [
+    for (var source in soundFonts)
+      if (source.compressed == compressed)
         {
           'id': source.id,
           'name': source.name,
@@ -97,12 +121,12 @@ class MidiSoundFontCatalog {
           'licence': source.licence,
           'licenceUrl': ?source.licenceUrl,
           'path': ?source.path,
+          'sameAs': ?source.sameAs,
           'locations': [
             for (var url in [source.url, ...source.locations]) '$url',
           ],
         },
-    ],
-  };
+  ];
 
   /// The SoundFont [id], null when not in the catalog.
   MidiSoundFontSource? source(String id) =>

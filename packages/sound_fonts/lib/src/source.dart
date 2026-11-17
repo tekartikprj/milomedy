@@ -46,6 +46,14 @@ class MidiSoundFontSource {
   /// Its number of presets, null when unknown (shown before a download).
   final int? presetCount;
 
+  /// True for an SF3 (its samples compressed): the library keeps the SF2 it
+  /// stands for. [size] and [sha256] are those of the SF3.
+  final bool compressed;
+
+  /// The id of another source with the same sounds (an SF2 and its SF3): an
+  /// app offering both offers one only once the other is installed.
+  final String? sameAs;
+
   /// A source.
   const MidiSoundFontSource({
     required this.id,
@@ -60,6 +68,8 @@ class MidiSoundFontSource {
     this.licenceUrl,
     this.version,
     this.presetCount,
+    this.compressed = false,
+    this.sameAs,
   });
 
   /// The urls tried for a download, in order: the [path] below
@@ -127,6 +137,42 @@ MidiSoundFontSource midiGeneralUserGs({
   gitBlobSha1: '298b552d2e9d1307e03e5c5c99d2c046aaed9ec3',
   version: '2.0.3',
   presetCount: 287,
+  sameAs: midiGeneralUserGsSf3Id,
+  licence:
+      'Free for any use, private or commercial, by S. Christian Collins '
+      '(https://www.schristiancollins.com/generaluser)',
+);
+
+/// The id of GeneralUser GS 2.0.3 in SF3 in the library.
+const midiGeneralUserGsSf3Id = 'generaluser_gs_sf3';
+
+/// The SHA-256 of GeneralUser GS 2.0.3 in SF3 (by
+/// `tool/compress_sound_font.dart --quality 6`, ffmpeg's libvorbis).
+const midiGeneralUserGsSf3Sha256 =
+    '0aec3f5023ff1857c01b4af4ee4881ba24c4b6b1d1bf1e605d88c9a93c299c8f';
+
+/// GeneralUser GS 2.0.3 compressed (SF3, its samples in Ogg Vorbis at
+/// quality 6): 9 MB to download instead of 32 MB, the SF2 it stands for
+/// kept by the library (the same presets, the samples at a median signal
+/// to noise ratio of 32 dB). Made by `tool/compress_sound_font.dart` from
+/// the file of [midiGeneralUserGs], its licence allowing a new packaging;
+/// downloaded from [url], a copy the app hosts, then from [locations].
+MidiSoundFontSource midiGeneralUserGsSf3({
+  required Uri url,
+  List<Uri> locations = const [],
+  String? path,
+}) => MidiSoundFontSource(
+  id: midiGeneralUserGsSf3Id,
+  name: 'GeneralUser GS 2.0.3',
+  url: url,
+  locations: locations,
+  path: path,
+  size: 9110502,
+  sha256: midiGeneralUserGsSf3Sha256,
+  version: '2.0.3',
+  presetCount: 287,
+  compressed: true,
+  sameAs: midiGeneralUserGsId,
   licence:
       'Free for any use, private or commercial, by S. Christian Collins '
       '(https://www.schristiancollins.com/generaluser)',

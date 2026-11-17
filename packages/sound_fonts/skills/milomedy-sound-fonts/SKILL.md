@@ -1,12 +1,14 @@
 ---
 name: milomedy-sound-fonts
 description: >-
-  Use when an app keeps SoundFonts (.sf2) for the milomedy MIDI engine with
-  milomedy_sound_fonts: MidiSoundFontLibrary (list, entry, read, import,
+  Use when an app keeps SoundFonts (.sf2, .sf3) for the milomedy MIDI engine
+  with milomedy_sound_fonts: MidiSoundFontLibrary (list, entry, read, import,
   download, ensure, setDefault, defaultId, delete) on an fs_shim file system
   (files on io, IndexedDB on the web), MidiSoundFontSource and its size and
-  git blob checks, midiGeneralUserGs (a hosted copy, its licence), the
-  built-in 'tiny' fallback, and testing with a memory file system and an
+  git blob checks, midiGeneralUserGs and midiGeneralUserGsSf3 (a hosted copy,
+  its licence), SF3 turned into SF2 (midiSoundFontDecompress) or made with
+  ffmpeg (midiSoundFontCompress), the catalog (compressedSoundFonts, sameAs),
+  the built-in 'tiny' fallback, and testing with a memory file system and an
   http MockClient.
 ---
 
@@ -72,6 +74,26 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
 * GeneralUser GS (`midiGeneralUserGs(url: hostedCopy)`): its licence asks not
   to link to the author's download files, so the app hosts a copy;
   `midiGeneralUserGsUpstreamUrl` is for development and tools only.
+* SF3 (an SF2 whose samples are Ogg Vorbis streams, 9 MB instead of 32 for
+  GeneralUser GS): `import` and `download` turn it into the SF2 it stands for
+  (`midiSoundFontDecompress`, pure Dart, a few seconds: `onUnpack(done,
+  total)` for a progress bar; the event loop runs between samples), keep
+  that SF2 (`entry.sha256`) and the SHA-256 of the SF3
+  (`entry.originalSha256`: `sameFile` and a second import find it). A
+  source's `size` and `sha256` are those of the SF3 (`compressed: true`).
+  `midiSoundFontIsCompressed(bytes)` tells one; the synth never sees one.
+* A catalog lists the SF3 sources apart (`"compressedSoundFonts": [...]`,
+  read first): an app built before SF3 reads `soundFonts` only and never
+  offers one. `sameAs` (an id) links the SF2 and the SF3 of the same bank
+  (`midiGeneralUserGs` and `midiGeneralUserGsSf3`): offer the first listed,
+  and neither once one is installed.
+* Making an SF3 (io): `midiSoundFontCompress(sf2, encode:
+  midiFfmpegVorbisEncoder(quality: 6))` of
+  `package:milomedy_sound_fonts/sf3_ffmpeg.dart` (ffmpeg with libvorbis on
+  the PATH, the same bytes for the same input), or
+  `dart run tool/compress_sound_font.dart in.sf2 out.sf3 --quality 6`, which
+  checks frames and loops (`midiSoundFontSampleDifferences`) and prints the
+  signal to noise ratios (`midiSoundFontSampleSnr`).
 * Licences: show `entry.copyright` and `entry.comments` of an imported
   SoundFont, `entry.licence` of a downloaded one.
 * `delete(id)` removes the file and the entry (not the built-in one, an
@@ -79,7 +101,8 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
 * Testing: `newFileSystemMemory()` of `package:fs_shim/fs_memory.dart` and a
   `MockClient` of `package:http/testing.dart`; `midiTinySoundFontBytes()` of
   milomedy_midi_synth_sf2 is a valid SoundFont (already in the library as the
-  built-in one: change its name bytes for another one).
+  built-in one: change its name bytes for another one);
+  `midiTinySoundFontSf3Bytes()` is the same in SF3.
 
 ## Examples
 
