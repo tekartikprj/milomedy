@@ -67,6 +67,15 @@ abstract class MidiHostPlayer implements MidiTransport {
   /// Sends [command] to the host (for implementations).
   void sendCommand(Map<String, Object?> command);
 
+  /// Sends [command] to the host, moving the buffers of [transfer] instead of
+  /// copying them when the host runs elsewhere (the AudioWorklet): they are
+  /// unusable here once sent. As [sendCommand] by default (for
+  /// implementations).
+  void sendCommandTransfer(
+    Map<String, Object?> command,
+    List<ByteBuffer> transfer,
+  ) => sendCommand(command);
+
   /// The time of the clock of the position reports at which the output is
   /// heard now, in seconds (for implementations). A report without a time is
   /// the position heard when it is received.
@@ -76,11 +85,13 @@ abstract class MidiHostPlayer implements MidiTransport {
   Future<void> resumeOutput() async {}
 
   /// Sends [command], numbered; [changesState] for the commands after which
-  /// the state and position events sent before are stale.
+  /// the state and position events sent before are stale; the buffers of
+  /// [transfer] moved (see [sendCommandTransfer]).
   void _send(
     Map<String, Object?> command, {
     bool changesState = false,
     bool setsSpeed = false,
+    List<ByteBuffer>? transfer,
   }) {
     _seq++;
     if (changesState) {
@@ -89,7 +100,12 @@ abstract class MidiHostPlayer implements MidiTransport {
     if (setsSpeed) {
       _speedSeq = _seq;
     }
-    sendCommand({...command, 'seq': _seq});
+    var numbered = {...command, 'seq': _seq};
+    if (transfer == null) {
+      sendCommand(numbered);
+    } else {
+      sendCommandTransfer(numbered, transfer);
+    }
   }
 
   /// Handles an event of the host (for implementations).
@@ -360,8 +376,27 @@ abstract class MidiHostPlayer implements MidiTransport {
   /// spec plays it get their synth. Completes once the host has read it; an
   /// error (no SoundFont support registered in the host, a bad file) comes
   /// on [onError].
-  Future<void> loadSoundFont(String id, Uint8List bytes) {
-    _send({'type': MidiHostCommands.soundFont, 'id': id, 'bytes': bytes});
+  ///
+  /// With [transfer], the bytes are moved to the host when it runs elsewhere
+  /// (the AudioWorklet on the web) instead of copied: a large SoundFont is in
+  /// memory once, not twice (32 MB for GeneralUser GS, the page and the
+  /// worklet in the same process on iOS). [bytes] are then empty here; a view
+  /// on part of a larger buffer is copied first.
+  Future<void> loadSoundFont(
+    String id,
+    Uint8List bytes, {
+    bool transfer = false,
+  }) {
+    if (transfer &&
+        (bytes.offsetInBytes != 0 ||
+            bytes.lengthInBytes != bytes.buffer.lengthInBytes)) {
+      bytes = Uint8List.fromList(bytes);
+    }
+    _send({
+      'type': MidiHostCommands.soundFont,
+      'id': id,
+      'bytes': bytes,
+    }, transfer: transfer ? [bytes.buffer] : null);
     return sync();
   }
 

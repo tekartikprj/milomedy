@@ -3,6 +3,7 @@ library;
 
 import 'dart:js_interop';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:milomedy_midi_engine/midi_engine.dart';
 import 'package:milomedy_midi_engine/web_worklet.dart';
@@ -79,6 +80,40 @@ void main() {
     expect(player.state, MidiPlayerState.playing);
     // The stopped event of the load, sent before the play, is stale.
     expect(states, [MidiPlayerState.playing]);
+    await player.close();
+  });
+
+  test('a SoundFont moved to the worklet, not copied', () async {
+    if (!await _moduleBuilt()) {
+      markTestSkipped('$midiWorkletDefaultUrl not built');
+      return;
+    }
+    var context = web.OfflineAudioContext(2.toJS, 44100, 44100);
+    var player = await MidiWorkletPlayer.create(
+      synths: [MidiSynthSpec.metronome],
+      context: context,
+    );
+    var errors = <String>[];
+    player.onError.listen(errors.add);
+    // No SoundFont support in this worklet: the bytes arrive, then are
+    // refused.
+    var bytes = Uint8List.fromList([1, 2, 3, 4]);
+    await player.loadSoundFont('sf', bytes, transfer: true);
+    expect(bytes.lengthInBytes, 0);
+    expect(errors.single, contains('no SoundFont support'));
+    // Copied: kept here.
+    var kept = Uint8List.fromList([1, 2, 3, 4]);
+    await player.loadSoundFont('sf', kept);
+    expect(kept, [1, 2, 3, 4]);
+    // A view on part of a larger buffer: copied first, the buffer kept.
+    var buffer = Uint8List.fromList([0, 1, 2, 3, 4, 5]);
+    await player.loadSoundFont(
+      'sf',
+      Uint8List.sublistView(buffer, 1, 5),
+      transfer: true,
+    );
+    expect(buffer, [0, 1, 2, 3, 4, 5]);
+    expect(errors, hasLength(3));
     await player.close();
   });
 

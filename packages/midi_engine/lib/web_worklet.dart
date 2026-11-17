@@ -5,6 +5,7 @@ library;
 
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
+import 'dart:typed_data';
 
 import 'package:web/web.dart' as web;
 
@@ -71,6 +72,18 @@ class MidiWorkletPlayer extends MidiHostPlayer {
   @override
   void sendCommand(Map<String, Object?> command) =>
       node.port.postMessage(command.jsify());
+
+  /// The buffers of [transfer] moved to the worklet with [command]: in
+  /// dart2js the typed data of [command] are the same JS objects, their
+  /// buffers are not copied (dart2wasm copies them anyway).
+  @override
+  void sendCommandTransfer(
+    Map<String, Object?> command,
+    List<ByteBuffer> transfer,
+  ) => node.port.postMessage(
+    command.jsify(),
+    <JSAny>[for (var buffer in transfer) buffer.toJS].toJS,
+  );
 
   /// The context time heard now: the worklet reports the context time of the
   /// blocks it renders, heard after the output latency.

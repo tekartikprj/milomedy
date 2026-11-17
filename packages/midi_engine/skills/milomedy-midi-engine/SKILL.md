@@ -59,6 +59,8 @@ timeline.
   `MidiSynthSpec(soundFont: 'gm')`, silent until
   `player.loadSoundFont('gm', bytes)` (the SoundFont support must be
   registered where the engine runs: see `milomedy_midi_synth_sf2`).
+  `transfer: true` moves the bytes to the AudioWorklet instead of copying
+  them (empty afterwards): for a large SoundFont read for this call alone.
 * One sample rate everywhere: `MidiEngine` checks its synths, `MidiPlayer`
   its sink (`ArgumentError`). On the web use the sink's
   (`MidiWebAudioSink().sampleRate`). Timeline events on a track without a

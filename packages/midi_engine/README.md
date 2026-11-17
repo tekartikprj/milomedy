@@ -268,6 +268,12 @@ engine itself does not know SoundFonts, so a metronome does not pay for them:
 - **Isolate:** pass `midiSoundFontRegister` as the `setup` of
   `MidiIsolatePlayer.spawn`.
 
+A large SoundFont is better moved than copied to the AudioWorklet:
+`loadSoundFont(id, bytes, transfer: true)` sends its buffer without a copy
+(32 MB for GeneralUser GS, once in memory instead of twice; the page and the
+worklet share one process on iOS). `bytes` are empty afterwards: read them for
+this call alone. Elsewhere the option changes nothing.
+
 `midi_render`, the CLI that renders a MIDI file to WAV, moved to
 `milomedy_midi_synth_sf2`, with a `--soundfont` option.
 
