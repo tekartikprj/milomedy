@@ -14,6 +14,8 @@ void main() {
 
   test('the sine decoded', () => checkSine(ogg));
 
+  test('16-bit frames, setups kept', () => checkInt16(ogg));
+
   test('not Ogg Vorbis: refused', () {
     expect(
       () => decodeOgg(Uint8List.fromList([1, 2, 3])),

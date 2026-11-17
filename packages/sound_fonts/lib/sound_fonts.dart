@@ -15,3 +15,4 @@ export 'src/library.dart';
 export 'src/sf3.dart';
 export 'src/source.dart';
 export 'src/tiny_sf3.dart';
+export 'src/worker/decompressor.dart';

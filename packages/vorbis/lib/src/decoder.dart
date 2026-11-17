@@ -56,8 +56,10 @@ VorbisInfo probeOgg(Uint8List bytes) {
   }
 }
 
-VorbisInfo _probeOgg(Uint8List bytes) {
-  final stream = OggPacketReader(bytes).readVorbisStream();
+VorbisInfo _probeOgg(Uint8List bytes) =>
+    _probeStream(OggPacketReader(bytes).readVorbisStream());
+
+VorbisInfo _probeStream(OggStream stream) {
   final packet = stream.packets.first.data;
   if (packet.length < 30 ||
       packet[0] != 1 ||
@@ -99,23 +101,51 @@ VorbisInfo _probeOgg(Uint8List bytes) {
   return VorbisInfo(channels: channels, sampleRate: sampleRate, frames: frames);
 }
 
-/// Decodes an Ogg Vorbis stream to interleaved float PCM.
-VorbisDecoded decodeOgg(Uint8List bytes) {
+/// Decodes an Ogg Vorbis stream to interleaved float PCM; its setup taken
+/// from [setups] when there (streams of the same encoder).
+VorbisDecoded decodeOgg(Uint8List bytes, {VorbisSetupCache? setups}) =>
+    _guard(() {
+      final stream = OggPacketReader(bytes).readVorbisStream();
+      // Run the strict public header validation before setup
+      // parsing/synthesis.
+      final info = _probeStream(stream);
+      final pcm = VorbisCore(stream, setups: setups).decode();
+      if (pcm.length != info.totalSamples) {
+        throw const VorbisDecoderException('decoded PCM length mismatch');
+      }
+      return VorbisDecoded(
+        channels: info.channels,
+        sampleRate: info.sampleRate,
+        frames: info.frames,
+        pcm: pcm,
+      );
+    });
+
+/// Decodes an Ogg Vorbis stream to signed 16-bit PCM ([float32ToInt16] of
+/// [decodeOgg], without its float frames) written in [output] from
+/// [offset]: interleaved, or the first channel only when [firstChannelOnly].
+/// Returns its frames ([VorbisInfo.frames], from [probeOgg]: [output] must
+/// hold them). Its setup taken from [setups] when there.
+int decodeOggInt16(
+  Uint8List bytes,
+  Int16List output, {
+  int offset = 0,
+  bool firstChannelOnly = false,
+  VorbisSetupCache? setups,
+}) => _guard(() {
+  final stream = OggPacketReader(bytes).readVorbisStream();
+  _probeStream(stream);
+  return VorbisCore(
+    stream,
+    setups: setups,
+  ).decodeInt16(output, offset: offset, firstChannelOnly: firstChannelOnly);
+});
+
+/// [decode] with the errors of a malformed stream as
+/// [VorbisDecoderException].
+T _guard<T>(T Function() decode) {
   try {
-    final stream = OggPacketReader(bytes).readVorbisStream();
-    // Run the strict public header validation before setup parsing/synthesis.
-    final info = _probeOgg(bytes);
-    final core = VorbisCore(stream);
-    final pcm = core.decode();
-    if (pcm.length != info.totalSamples) {
-      throw const VorbisDecoderException('decoded PCM length mismatch');
-    }
-    return VorbisDecoded(
-      channels: info.channels,
-      sampleRate: info.sampleRate,
-      frames: info.frames,
-      pcm: pcm,
-    );
+    return decode();
   } on VorbisDecoderException {
     rethrow;
   } on RangeError catch (error) {
@@ -133,16 +163,7 @@ VorbisDecoded decodeOgg(Uint8List bytes) {
 Int16List float32ToInt16(Float32List pcm) {
   final result = Int16List(pcm.length);
   for (var i = 0; i < pcm.length; i++) {
-    final value = pcm[i];
-    if (value.isNaN) {
-      result[i] = 0;
-    } else if (value <= -1) {
-      result[i] = -32768;
-    } else if (value >= 1) {
-      result[i] = 32767;
-    } else {
-      result[i] = (value * (value < 0 ? 32768 : 32767)).round();
-    }
+    result[i] = floatToInt16(pcm[i]);
   }
   return result;
 }

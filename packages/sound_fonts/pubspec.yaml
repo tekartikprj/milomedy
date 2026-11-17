@@ -26,6 +26,13 @@ dependencies:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/vorbis
+  # The worker of an SF3 (web), its setup (setup.dart, io).
+  web: ">=1.1.0"
+  tekartik_web_worker_build:
+    git:
+      url: https://github.com/tekartik/app_build.dart
+      path: packages/web_worker_build
+    version: ">=0.1.0"
 
 dev_dependencies:
   args: ">=2.7.0"

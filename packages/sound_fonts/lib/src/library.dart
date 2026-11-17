@@ -15,6 +15,7 @@ import 'package:milomedy_midi_synth_sf2/midi_synth_sf2.dart';
 
 import 'sf3.dart';
 import 'source.dart';
+import 'worker/decompressor.dart';
 
 /// A SoundFont of the library.
 class MidiSoundFontEntry {
@@ -181,6 +182,9 @@ class MidiSoundFontLibrary {
 
   final http.Client? _client;
 
+  /// Turns an SF3 into its SF2 (on import and download).
+  final MidiSoundFontDecompressor _decompress;
+
   // No future is kept once complete: one complete calls back through the
   // zone it was made in, a library used in two zones (the real and the fake
   // async ones of a widget test) would wait for the other one.
@@ -196,12 +200,15 @@ class MidiSoundFontLibrary {
   Future<void>? _lastChange;
 
   /// A library in [path] of [fileSystem] (`fileSystemDefault` of fs_shim:
-  /// files on io, IndexedDB on the web), downloading with [client].
+  /// files on io, IndexedDB on the web), downloading with [client]; an SF3
+  /// turned into its SF2 by [decompress] (`midiSoundFontDecompress` here by
+  /// default, `midiSoundFontWorkerDecompressor()` in a web worker).
   MidiSoundFontLibrary({
     required this.fileSystem,
     required this.path,
     this._client,
-  });
+    MidiSoundFontDecompressor? decompress,
+  }) : _decompress = decompress ?? midiSoundFontDecompress;
 
   static final _builtIn = () {
     var bytes = midiTinySoundFontBytes();
@@ -395,7 +402,7 @@ class MidiSoundFontLibrary {
       if (known != null) {
         return known;
       }
-      bytes = await midiSoundFontDecompress(bytes, onProgress: onUnpack);
+      bytes = await _decompress(bytes, onProgress: onUnpack);
     }
     var soundFont = MidiSoundFont.fromBytes(bytes);
     return _add(
@@ -489,7 +496,7 @@ class MidiSoundFontLibrary {
           String? originalSha256;
           if (midiSoundFontIsCompressed(bytes)) {
             originalSha256 = sha256.convert(bytes).toString();
-            bytes = await midiSoundFontDecompress(bytes, onProgress: onUnpack);
+            bytes = await _decompress(bytes, onProgress: onUnpack);
           }
           entry = await _add(
             bytes,
@@ -499,6 +506,10 @@ class MidiSoundFontLibrary {
             url: url,
             originalSha256: originalSha256,
           );
+        } on MidiSoundFontWorkerException {
+          // The worker failed (out of memory?), not the file: kept, the
+          // next try decodes it again without downloading it.
+          rethrow;
         } catch (e) {
           // Not a SoundFont (or an SF3 that does not decode).
           await deletePart(source.id);

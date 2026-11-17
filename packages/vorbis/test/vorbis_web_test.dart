@@ -13,5 +13,6 @@ void main() {
     var response = await http.get(Uri.base.resolve('data/sine.ogg'));
     expect(response.statusCode, 200);
     checkSine(response.bodyBytes);
+    checkInt16(response.bodyBytes);
   });
 }

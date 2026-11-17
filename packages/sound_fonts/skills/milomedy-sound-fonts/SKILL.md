@@ -6,10 +6,11 @@ description: >-
   download, ensure, setDefault, defaultId, delete) on an fs_shim file system
   (files on io, IndexedDB on the web), MidiSoundFontSource and its size and
   git blob checks, midiGeneralUserGs and midiGeneralUserGsSf3 (a hosted copy,
-  its licence), SF3 turned into SF2 (midiSoundFontDecompress) or made with
-  ffmpeg (midiSoundFontCompress), the catalog (compressedSoundFonts, sameAs),
-  the built-in 'tiny' fallback, and testing with a memory file system and an
-  http MockClient.
+  its licence), SF3 turned into SF2 (midiSoundFontDecompress, in a web
+  worker with midiSoundFontWorkerDecompressor and setupMidiSoundFontWorker)
+  or made with ffmpeg (midiSoundFontCompress), the catalog
+  (compressedSoundFonts, sameAs), the built-in 'tiny' fallback, and testing
+  with a memory file system and an http MockClient.
 ---
 
 # SoundFont library (milomedy_sound_fonts)
@@ -82,6 +83,15 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
   (`entry.originalSha256`: `sameFile` and a second import find it). A
   source's `size` and `sha256` are those of the SF3 (`compressed: true`).
   `midiSoundFontIsCompressed(bytes)` tells one; the synth never sees one.
+* On the web, decompress in a web worker:
+  `MidiSoundFontLibrary(..., decompress: midiSoundFontWorkerDecompressor())`
+  (io: in the calling isolate), the script `sound_font_worker.js` built next
+  to the page before a web build (`dart run
+  milomedy_sound_fonts:setup_sound_font_worker`, or
+  `setupMidiSoundFontWorker()` of `package:milomedy_sound_fonts/setup.dart`
+  from a tool; git ignore it). Missing, the SF3 is decompressed in the page
+  (a console warning). A worker failure (`MidiSoundFontWorkerException`)
+  keeps the downloaded file for the next try.
 * A catalog lists the SF3 sources apart (`"compressedSoundFonts": [...]`,
   read first): an app built before SF3 reads `soundFonts` only and never
   offers one. `sameAs` (an id) links the SF2 and the SF3 of the same bank

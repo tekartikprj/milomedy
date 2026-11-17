@@ -40,12 +40,29 @@ class _Chunk {
   final String? listType;
   final List<_Chunk> chunks;
 
-  _Chunk(this.id, this.data) : listType = null, chunks = const [];
+  /// The size of the data of a reserved chunk, written in place later; null
+  /// for a chunk with its [data].
+  final int? reserved;
+
+  _Chunk(this.id, this.data)
+    : listType = null,
+      chunks = const [],
+      reserved = null;
+
+  /// A chunk of [size] bytes, zero, to fill in the bank written.
+  _Chunk.reserved(this.id, int size)
+    : listType = null,
+      chunks = const [],
+      data = Uint8List(0),
+      reserved = size;
 
   _Chunk.list(String type, this.chunks)
     : id = 'LIST',
       listType = type,
-      data = Uint8List(0);
+      data = Uint8List(0),
+      reserved = null;
+
+  int get _dataSize => reserved ?? data.length;
 
   _Chunk? find(String id) {
     for (var chunk in chunks) {
@@ -57,7 +74,7 @@ class _Chunk {
   }
 
   int get size => listType == null
-      ? data.length
+      ? _dataSize
       : 4 + chunks.fold(0, (size, chunk) => size + 8 + _even(chunk.size));
 }
 
@@ -102,37 +119,46 @@ _Chunk _readBank(Uint8List bytes) {
   return _Chunk.list('sfbk', _chunks(bytes, 12, end));
 }
 
-/// The bytes of the bank [bank] (a `RIFF sfbk`).
-Uint8List _writeBank(_Chunk bank) {
-  var builder = BytesBuilder(copy: false);
-  void write(_Chunk chunk) {
-    var header = ByteData(8);
-    var id = chunk.listType == null ? chunk.id : 'LIST';
+/// The bytes of the bank [bank] (a `RIFF sfbk`), in one buffer; the data
+/// of a reserved chunk left zero, its offset given to [onReserved].
+Uint8List _writeBank(_Chunk bank, {void Function(int offset)? onReserved}) {
+  var bytes = Uint8List(8 + bank.size);
+  var data = ByteData.sublistView(bytes);
+  var at = 0;
+  void tag(String id) {
     for (var i = 0; i < 4; i++) {
-      header.setUint8(i, id.codeUnitAt(i));
+      bytes[at + i] = id.codeUnitAt(i);
     }
-    header.setUint32(4, chunk.size, Endian.little);
-    builder.add(header.buffer.asUint8List());
-    var type = chunk.listType;
-    if (type != null) {
-      builder.add(ascii.encode(type));
-      chunk.chunks.forEach(write);
-    } else {
-      builder.add(chunk.data);
-      if (chunk.data.length.isOdd) {
-        builder.addByte(0);
-      }
-    }
+    at += 4;
   }
 
-  var header = ByteData(12);
-  header
-    ..setUint32(0, 0x46464952, Endian.little) // RIFF
-    ..setUint32(4, bank.size, Endian.little)
-    ..setUint32(8, 0x6b626673, Endian.little); // sfbk
-  builder.add(header.buffer.asUint8List());
+  void size(int size) {
+    data.setUint32(at, size, Endian.little);
+    at += 4;
+  }
+
+  void write(_Chunk chunk) {
+    var type = chunk.listType;
+    tag(type == null ? chunk.id : 'LIST');
+    size(chunk.size);
+    if (type != null) {
+      tag(type);
+      chunk.chunks.forEach(write);
+      return;
+    }
+    if (chunk.reserved == null) {
+      bytes.setRange(at, at + chunk.data.length, chunk.data);
+    } else {
+      onReserved?.call(at);
+    }
+    at += _even(chunk._dataSize);
+  }
+
+  tag('RIFF');
+  size(bank.size);
+  tag('sfbk');
   bank.chunks.forEach(write);
-  return builder.takeBytes();
+  return bytes;
 }
 
 /// The sample headers of [bank], the last one the terminal `EOS`.
@@ -179,10 +205,10 @@ _Chunk _info(_Chunk bank, int major, int minor) {
 }
 
 /// The bank of [info], [smpl] and the pdta of [bank] with [shdr].
-_Chunk _bank(_Chunk bank, _Chunk info, Uint8List smpl, Uint8List shdr) =>
+_Chunk _bank(_Chunk bank, _Chunk info, _Chunk smpl, Uint8List shdr) =>
     _Chunk.list('sfbk', [
       info,
-      _Chunk.list('sdta', [_Chunk('smpl', smpl)]),
+      _Chunk.list('sdta', [smpl]),
       _Chunk.list('pdta', [
         for (var chunk in bank.find('pdta')!.chunks)
           if (chunk.id == 'shdr') _Chunk('shdr', shdr) else chunk,
@@ -211,7 +237,10 @@ class _Slicer {
 ///
 /// It takes a few seconds for a General MIDI bank (920 samples, 32 MB
 /// once decoded: about 4 s on the VM): the event loop runs every [slice].
-/// An SF2 is returned as is.
+/// The SF2 is written in one buffer: the length of each sample read first
+/// (the last granule position of its stream), its frames then decoded in
+/// place; the setups shared by the streams parsed once
+/// ([VorbisSetupCache]). An SF2 is returned as is.
 Future<Uint8List> midiSoundFontDecompress(
   Uint8List bytes, {
   void Function(int done, int total)? onProgress,
@@ -228,10 +257,10 @@ Future<Uint8List> midiSoundFontDecompress(
     Uint8List.sublistView(headers, 0, (count + 1) * _headerSize),
   );
   var out = ByteData.sublistView(shdr);
-  var frames = BytesBuilder(copy: false);
-  var position = 0;
-  var guard = Uint8List(_guard * 2);
   var slicer = _Slicer(slice);
+
+  // The place of each sample in the SF2: its length, its loop points.
+  var position = 0;
   for (var i = 0; i < count; i++) {
     var o = i * _headerSize;
     var start = headers.getUint32(o + 20, Endian.little);
@@ -239,31 +268,23 @@ Future<Uint8List> midiSoundFontDecompress(
     var loopStart = headers.getUint32(o + 28, Endian.little);
     var loopEnd = headers.getUint32(o + 32, Endian.little);
     var type = headers.getUint16(o + 44, Endian.little);
-    Int16List pcm;
+    int length;
     if (type & _sampleTypeRom != 0) {
-      pcm = Int16List(0);
+      length = 0;
     } else if (type & midiSampleTypeCompressed != 0) {
       if (end > smpl.length || start > end) {
         throw FormatException('SF3: sample $i past the sample data');
       }
-      var decoded = decodeOgg(Uint8List.sublistView(smpl, start, end));
-      var all = float32ToInt16(decoded.pcm);
-      var channels = decoded.channels;
-      pcm = channels == 1
-          ? all
-          : Int16List.fromList([
-              for (var f = 0; f < decoded.frames; f++) all[f * channels],
-            ]);
+      length = probeOgg(Uint8List.sublistView(smpl, start, end)).frames;
     } else {
-      // A sample kept as is: its frames, its loop points absolute.
+      // A sample kept as is: its loop points absolute.
       if (end * 2 > smpl.length || start > end) {
         throw FormatException('SF3: sample $i past the sample data');
       }
-      pcm = _frames(smpl, start, end);
+      length = end - start;
       loopStart -= start;
       loopEnd -= start;
     }
-    var length = pcm.length;
     var relativeStart = loopStart.clamp(0, length);
     var relativeEnd = loopEnd.clamp(relativeStart, length);
     out
@@ -272,14 +293,55 @@ Future<Uint8List> midiSoundFontDecompress(
       ..setUint32(o + 28, position + relativeStart, Endian.little)
       ..setUint32(o + 32, position + relativeEnd, Endian.little)
       ..setUint16(o + 44, type & ~midiSampleTypeCompressed, Endian.little);
-    frames
-      ..add(_littleEndian(pcm))
-      ..add(guard);
     position += length + _guard;
+    await slicer.next();
+  }
+
+  // The SF2, its frames zero; then each sample decoded in place.
+  var framesOffset = 0;
+  var sf2 = _writeBank(
+    _bank(bank, _info(bank, 2, 4), _Chunk.reserved('smpl', position * 2), shdr),
+    onReserved: (offset) => framesOffset = offset,
+  );
+  // RIFF chunks are even: the frames are aligned.
+  var frames = Int16List.view(sf2.buffer, framesOffset, position);
+  var source = ByteData.sublistView(smpl);
+  var setups = VorbisSetupCache();
+  for (var i = 0; i < count; i++) {
+    var o = i * _headerSize;
+    var start = headers.getUint32(o + 20, Endian.little);
+    var end = headers.getUint32(o + 24, Endian.little);
+    var type = headers.getUint16(o + 44, Endian.little);
+    var at = out.getUint32(o + 20, Endian.little);
+    var length = out.getUint32(o + 24, Endian.little) - at;
+    if (type & _sampleTypeRom != 0) {
+      // Not in the file.
+    } else if (type & midiSampleTypeCompressed != 0) {
+      var decoded = decodeOggInt16(
+        Uint8List.sublistView(smpl, start, end),
+        frames,
+        offset: at,
+        firstChannelOnly: true,
+        setups: setups,
+      );
+      if (decoded != length) {
+        throw FormatException('SF3: sample $i decoded $decoded of $length');
+      }
+    } else {
+      for (var f = 0; f < length; f++) {
+        frames[at + f] = source.getInt16((start + f) * 2, Endian.little);
+      }
+    }
+    if (Endian.host != Endian.little) {
+      var view = ByteData.sublistView(frames, at, at + length);
+      for (var f = 0; f < length; f++) {
+        view.setInt16(f * 2, view.getInt16(f * 2), Endian.little);
+      }
+    }
     onProgress?.call(i + 1, count);
     await slicer.next();
   }
-  return _writeBank(_bank(bank, _info(bank, 2, 4), frames.takeBytes(), shdr));
+  return sf2;
 }
 
 /// Compresses one sample: its 16-bit [frames] (mono) at [sampleRate] to an
@@ -345,7 +407,9 @@ Future<Uint8List> midiSoundFontCompress(
     offset += ogg.length;
     onProgress?.call(i + 1, count);
   }
-  return _writeBank(_bank(bank, _info(bank, 3, 0), streams.takeBytes(), shdr));
+  return _writeBank(
+    _bank(bank, _info(bank, 3, 0), _Chunk('smpl', streams.takeBytes()), shdr),
+  );
 }
 
 /// What differs between the samples of the SF2 [a] and [b]: their number,
@@ -450,19 +514,4 @@ Int16List _frames(Uint8List smpl, int start, int end) {
     frames[i] = data.getInt16((start + i) * 2, Endian.little);
   }
   return frames;
-}
-
-/// The bytes of [frames], little endian whatever the host.
-Uint8List _littleEndian(Int16List frames) {
-  if (Endian.host == Endian.little) {
-    return frames.buffer.asUint8List(
-      frames.offsetInBytes,
-      frames.lengthInBytes,
-    );
-  }
-  var data = ByteData(frames.length * 2);
-  for (var i = 0; i < frames.length; i++) {
-    data.setInt16(i * 2, frames[i], Endian.little);
-  }
-  return data.buffer.asUint8List();
 }

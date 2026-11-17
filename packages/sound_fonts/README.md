@@ -118,8 +118,47 @@ of the same file is not decoded again). `onUnpack` tells the samples done.
   `package:milomedy_sound_fonts/sf3_ffmpeg.dart` in code. The same input
   gives the same bytes (ffmpeg `+bitexact`).
 - `midiTinySoundFontSf3Bytes()`: the tiny SoundFont in SF3, for tests.
+- The SF2 is written in one buffer (the length of each sample read first,
+  its frames decoded in place, the shared setups parsed once): for
+  GeneralUser GS on the VM, 62 MB in the heap at most and 181 MB of garbage,
+  where building it from parts reached 112 MB and made 578.
 - In a browser, by hand: copy an SF3 to `.local/benchmark/sound_font.sf3`,
-  then `dart test -p chrome test/sf3_web_test_manual.dart`.
+  run the VM tests (they build `test/sound_font_worker.js`), then
+  `dart test -p chrome test/sf3_web_test_manual.dart`.
+
+### In a web worker
+
+`midiSoundFontWorkerDecompressor()` decompresses each SF3 in a web worker of
+its own, terminated once done: none of its memory in the page's heap
+(iOS Safari reloaded a page unpacking GeneralUser GS in it), the page
+responsive. Give it to the library:
+
+```dart
+var library = MidiSoundFontLibrary(
+  fileSystem: fileSystemDefault,
+  path: 'sound_fonts',
+  decompress: midiSoundFontWorkerDecompressor(), // on io: here
+);
+```
+
+The worker script, `sound_font_worker.js` next to the page, is the SF3
+decoder compiled with dart2js (120 KB), built by the app before a web build
+(and git ignored):
+
+```sh
+dart run milomedy_sound_fonts:setup_sound_font_worker   # in the app
+```
+
+or `setupMidiSoundFontWorker()` of `package:milomedy_sound_fonts/setup.dart`
+from its tool; it builds again only when the Dart SDK or a package of the
+worker changed. Without it (missing, an older protocol) the SF3 is
+decompressed in the page, with a console warning (`fallback: false`
+throws instead). A worker that fails throws a `MidiSoundFontWorkerException`:
+a download keeps its file then, the next try decodes it without downloading
+it again.
+
+GeneralUser GS in Chrome (dart2js): 6.2 s in the worker, the page never
+waiting more than 15 ms; 8.2 s in the page, with pauses of 66 ms.
 
 ## Good to know
 

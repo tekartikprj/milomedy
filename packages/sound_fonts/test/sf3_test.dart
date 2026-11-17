@@ -159,6 +159,60 @@ void main() {
       expect((await library.sameFile(source))?.id, 'tiny_sf3');
       expect((await library.ensure(source)).id, 'tiny_sf3');
     });
+
+    test('the decompressor given; a failed worker keeps the file', () async {
+      var bytes = tinySf3();
+      var url = Uri.parse('https://example.com/tiny.sf3');
+      var source = MidiSoundFontSource(
+        id: 'tiny_sf3',
+        name: 'Tiny SF3',
+        url: url,
+        licence: 'test',
+        size: bytes.length,
+        sha256: sha256.convert(bytes).toString(),
+        compressed: true,
+      );
+      var requests = 0;
+      var fail = true;
+      var calls = 0;
+      var library = MidiSoundFontLibrary(
+        fileSystem: newFileSystemMemory(),
+        path: 'sf',
+        client: MockClient((request) async {
+          requests++;
+          return http.Response.bytes(bytes, 200);
+        }),
+        decompress: (bytes, {onProgress}) async {
+          calls++;
+          if (fail) {
+            throw MidiSoundFontWorkerException('out of memory');
+          }
+          return midiSoundFontDecompress(bytes, onProgress: onProgress);
+        },
+      );
+      await expectLater(
+        library.download(source),
+        throwsA(isA<MidiSoundFontWorkerException>()),
+      );
+      // Downloaded, kept: not downloaded again.
+      expect(await library.partSize('tiny_sf3'), bytes.length);
+      fail = false;
+      var entry = await library.download(source);
+      expect((calls, requests), (2, 1));
+      expect(entry.originalSha256, source.sha256);
+      expect(await library.partSize('tiny_sf3'), 0);
+      // Import: the same decompressor.
+      var imported = await MidiSoundFontLibrary(
+        fileSystem: newFileSystemMemory(),
+        path: 'sf',
+        decompress: (bytes, {onProgress}) async {
+          calls++;
+          return midiSoundFontDecompress(bytes, onProgress: onProgress);
+        },
+      ).import(bytes);
+      expect(calls, 3);
+      expect(imported.sha256, entry.sha256);
+    });
   });
 
   group('catalog', () {

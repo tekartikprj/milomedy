@@ -5,11 +5,83 @@ import '../decoder.dart';
 import '../ogg/packet_reader.dart';
 import 'bit_reader.dart';
 
+/// The setups parsed (codebooks, floors, residues, mappings), kept for the
+/// next streams with the same headers: the last [maximum] used.
+///
+/// An SF3 SoundFont holds one stream per sample, most of them with one of a
+/// few setups (GeneralUser GS: 90 for 920 samples; the last 16 used serve
+/// 800 of them). A parsed setup takes about 0.3 MB, parsing it again for
+/// each stream made that much garbage per stream.
+final class VorbisSetupCache {
+  /// A cache of the last [maximum] setups used.
+  VorbisSetupCache({this.maximum = 16}) : assert(maximum > 0);
+
+  /// The setups kept.
+  final int maximum;
+
+  /// The last used last.
+  final _entries = <_CachedSetup>[];
+
+  /// The streams that found their setup here.
+  var hits = 0;
+
+  /// The streams that parsed theirs.
+  var misses = 0;
+
+  _Setup _setup(Uint8List identification, Uint8List setup, _Identification id) {
+    for (var i = _entries.length - 1; i >= 0; i--) {
+      var entry = _entries[i];
+      if (_same(entry.setup, setup) &&
+          _same(entry.identification, identification)) {
+        hits++;
+        if (i != _entries.length - 1) {
+          _entries
+            ..removeAt(i)
+            ..add(entry);
+        }
+        return entry.parsed;
+      }
+    }
+    misses++;
+    var parsed = _Setup(BitReader(setup), id);
+    if (_entries.length == maximum) {
+      _entries.removeAt(0);
+    }
+    _entries.add(_CachedSetup(identification, setup, parsed));
+    return parsed;
+  }
+}
+
+final class _CachedSetup {
+  _CachedSetup(this.identification, this.setup, this.parsed);
+  final Uint8List identification;
+  final Uint8List setup;
+  final _Setup parsed;
+}
+
+bool _same(Uint8List a, Uint8List b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
+/// Receives the frames [from] to [from] + [count] of the channels [pcm] of
+/// a block, the frames [frame] and after of the stream.
+typedef _FrameSink =
+    void Function(List<Float64List> pcm, int from, int count, int frame);
+
 final class VorbisCore {
-  VorbisCore(OggStream stream)
+  /// The decoder of [stream]; its setup taken from [setups] when there.
+  VorbisCore(OggStream stream, {VorbisSetupCache? setups})
     : _stream = stream,
       _id = _Identification(stream.packets[0].data) {
-    _setup = _Setup(BitReader(stream.packets[2].data), _id);
+    final identification = stream.packets[0].data;
+    final setup = stream.packets[2].data;
+    _setup = setups != null
+        ? setups._setup(identification, setup, _id)
+        : _Setup(BitReader(setup), _id);
   }
 
   final OggStream _stream;
@@ -19,9 +91,56 @@ final class VorbisCore {
   int get channels => _id.channels;
   int get sampleRate => _id.sampleRate;
 
+  /// The frames of the stream.
+  int get frames => _stream.finalGranule;
+
+  /// The stream as interleaved float PCM.
   Float32List decode() {
+    final channels = this.channels;
+    final output = Float32List(frames * channels);
+    _decode((pcm, from, count, frame) {
+      for (var f = 0; f < count; f++) {
+        final at = (frame + f) * channels;
+        for (var ch = 0; ch < channels; ch++) {
+          output[at + ch] = pcm[ch][from + f];
+        }
+      }
+    });
+    return output;
+  }
+
+  /// The stream as signed 16-bit PCM ([float32ToInt16] of [decode], without
+  /// the float frames) written in [output] from [offset]: interleaved, or
+  /// the first channel only when [firstChannelOnly]. Returns [frames].
+  int decodeInt16(
+    Int16List output, {
+    int offset = 0,
+    bool firstChannelOnly = false,
+  }) {
+    final channels = firstChannelOnly ? 1 : this.channels;
+    if (offset < 0 || offset + frames * channels > output.length) {
+      throw ArgumentError.value(
+        output.length,
+        'output',
+        '${frames * channels} values from $offset do not fit',
+      );
+    }
+    // The float frames of decode() are 32-bit: rounded the same way.
+    final float = Float32List(1);
+    _decode((pcm, from, count, frame) {
+      for (var f = 0; f < count; f++) {
+        final at = offset + (frame + f) * channels;
+        for (var ch = 0; ch < channels; ch++) {
+          float[0] = pcm[ch][from + f];
+          output[at + ch] = floatToInt16(float[0]);
+        }
+      }
+    });
+    return frames;
+  }
+
+  void _decode(_FrameSink sink) {
     final targetFrames = _stream.finalGranule;
-    final output = Float32List(targetFrames * channels);
     _AudioBlock? previous;
     var writtenFrames = 0;
     var audioPackets = 0;
@@ -77,20 +196,23 @@ final class VorbisCore {
                 previous.pcm[ch][previous.valid + j];
           }
         }
-        for (
-          var sourceFrame = current.start;
-          sourceFrame < current.valid && writtenFrames < targetFrames;
-          sourceFrame++, writtenFrames++
-        ) {
+        final count = math.min(
+          current.valid - current.start,
+          targetFrames - writtenFrames,
+        );
+        if (count > 0) {
           for (var ch = 0; ch < channels; ch++) {
-            final value = current.pcm[ch][sourceFrame];
-            if (!value.isFinite) {
-              throw const VorbisDecoderException(
-                'decoder produced non-finite PCM',
-              );
+            final channel = current.pcm[ch];
+            for (var f = current.start; f < current.start + count; f++) {
+              if (!channel[f].isFinite) {
+                throw const VorbisDecoderException(
+                  'decoder produced non-finite PCM',
+                );
+              }
             }
-            output[writtenFrames * channels + ch] = value;
           }
+          sink(current.pcm, current.start, count, writtenFrames);
+          writtenFrames += count;
         }
       }
       previous = current;
@@ -103,8 +225,20 @@ final class VorbisCore {
         'decoded $writtenFrames frames, expected $targetFrames',
       );
     }
-    return output;
   }
+}
+
+/// [value] as a signed 16-bit sample: clamped to [-1, 1], rounded to the
+/// nearest integer (halves away from zero); -1 is -32768, +1 32767, NaN 0.
+int floatToInt16(double value) {
+  if (value.isNaN) {
+    return 0;
+  } else if (value <= -1) {
+    return -32768;
+  } else if (value >= 1) {
+    return 32767;
+  }
+  return (value * (value < 0 ? 32768 : 32767)).round();
 }
 
 final class _Identification {
