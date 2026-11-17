@@ -95,16 +95,66 @@ class MidiSoundFontEntry {
   String toString() => 'MidiSoundFontEntry($id, $name, $size bytes)';
 }
 
-/// A download that is not the file expected.
+/// A location tried by a download, and why it gave no SoundFont.
+class MidiSoundFontDownloadAttempt {
+  /// The url tried.
+  final Uri url;
+
+  /// What went wrong there.
+  final Object error;
+
+  /// An attempt.
+  const MidiSoundFontDownloadAttempt(this.url, this.error);
+
+  @override
+  String toString() => '$url: $error';
+}
+
+/// A download that gave no SoundFont: not the file expected, or no
+/// location answering.
 class MidiSoundFontDownloadException implements Exception {
   /// What went wrong.
   final String message;
 
+  /// The locations tried, in order, and why each failed.
+  final List<MidiSoundFontDownloadAttempt> attempts;
+
   /// An exception.
-  MidiSoundFontDownloadException(this.message);
+  MidiSoundFontDownloadException(this.message, {this.attempts = const []});
 
   @override
-  String toString() => 'MidiSoundFontDownloadException: $message';
+  String toString() => [
+    'MidiSoundFontDownloadException: $message',
+    for (var attempt in attempts) '  $attempt',
+  ].join('\n');
+}
+
+/// Stops a download ([MidiSoundFontLibrary.download]): what was received
+/// is kept, the next download of the same SoundFont resumes it.
+class MidiSoundFontDownloadCancel {
+  var _cancelled = false;
+
+  /// True once [cancel] called.
+  bool get isCancelled => _cancelled;
+
+  /// Stops the download at its next chunk.
+  void cancel() => _cancelled = true;
+}
+
+/// A download stopped by [MidiSoundFontDownloadCancel.cancel].
+class MidiSoundFontDownloadCancelledException implements Exception {
+  /// The SoundFont whose download stopped.
+  final String id;
+
+  /// The bytes received and kept (resumed next time).
+  final int received;
+
+  /// An exception.
+  MidiSoundFontDownloadCancelledException(this.id, this.received);
+
+  @override
+  String toString() =>
+      'MidiSoundFontDownloadCancelledException: $id ($received bytes kept)';
 }
 
 /// The SoundFont library, in [path] of [fileSystem].
@@ -261,13 +311,17 @@ class MidiSoundFontLibrary {
     required String id,
     String? name,
     MidiSoundFontSource? source,
-  }) => _change(() => _addNow(bytes, id: id, name: name, source: source));
+    Uri? url,
+  }) => _change(
+    () => _addNow(bytes, id: id, name: name, source: source, url: url),
+  );
 
   Future<MidiSoundFontEntry> _addNow(
     Uint8List bytes, {
     required String id,
     String? name,
     MidiSoundFontSource? source,
+    Uri? url,
   }) async {
     var soundFont = MidiSoundFont.fromBytes(bytes);
     var hash = sha256.convert(bytes).toString();
@@ -292,7 +346,7 @@ class MidiSoundFontLibrary {
       copyright: soundFont.copyright,
       author: soundFont.author,
       comments: soundFont.comments,
-      url: source?.url.toString(),
+      url: (url ?? source?.url)?.toString(),
       licence: source?.licence,
     );
     await fileSystem.directory(path).create(recursive: true);
@@ -312,67 +366,247 @@ class MidiSoundFontLibrary {
     return _add(bytes, id: _slug(name ?? soundFont.name), name: name);
   }
 
+  /// How much a download keeps in memory before writing it to its part.
+  static const _flushSize = 4 * 1024 * 1024;
+
+  File _partFile(String id) =>
+      fileSystem.file(fileSystem.path.join(path, '$id.sf2.part'));
+
+  /// The bytes of SoundFont [id] received by a download that did not end
+  /// (cancelled, offline): the next download resumes from there. 0 when
+  /// none.
+  Future<int> partSize(String id) async {
+    var part = _partFile(id);
+    return await part.exists() ? (await part.stat()).size : 0;
+  }
+
+  /// Forgets the bytes of an unfinished download of SoundFont [id].
+  Future<void> deletePart(String id) async {
+    var part = _partFile(id);
+    if (await part.exists()) {
+      await part.delete();
+    }
+  }
+
   /// Downloads [source], with [onProgress] (bytes received, total when
-  /// known); its size and hash are checked when the source gives them.
+  /// known).
+  ///
+  /// The locations are tried in order (`source.candidates`): the [soundServer]
+  /// of the user first when the source has a path, its url, its mirrors.
+  /// One fails on an http error, on [idleTimeout] with no byte, or when its
+  /// file is not the one expected (size, SHA-256, git blob id, a SoundFont);
+  /// the next is tried then. When none gives the file, the
+  /// [MidiSoundFontDownloadException] lists each attempt.
+  ///
+  /// The bytes go to a part file (`<id>.sf2.part`) as they come, in chunks
+  /// of a few MB: [cancel] stops at the next chunk and keeps them, and the
+  /// next download asks only for the rest (`Range`; a location answering
+  /// the whole file instead starts over).
   Future<MidiSoundFontEntry> download(
     MidiSoundFontSource source, {
     void Function(int received, int? total)? onProgress,
+    MidiSoundFontDownloadCancel? cancel,
+    Uri? soundServer,
+    Duration idleTimeout = const Duration(seconds: 30),
   }) async {
     var client = _client ?? http.Client();
+    var attempts = <MidiSoundFontDownloadAttempt>[];
     try {
-      var response = await client.send(http.Request('GET', source.url));
-      if (response.statusCode != 200) {
-        throw MidiSoundFontDownloadException(
-          '${source.url}: HTTP ${response.statusCode}',
-        );
+      for (var url in source.candidates(soundServer: soundServer)) {
+        Uint8List bytes;
+        try {
+          bytes = await _fetchPart(
+            client,
+            url,
+            source,
+            onProgress: onProgress,
+            cancel: cancel,
+            idleTimeout: idleTimeout,
+          );
+        } on MidiSoundFontDownloadCancelledException {
+          rethrow;
+        } catch (e) {
+          attempts.add(MidiSoundFontDownloadAttempt(url, e));
+          continue;
+        }
+        var problem = _problem(bytes, source);
+        if (problem != null) {
+          // Not the file: none of it is kept.
+          await deletePart(source.id);
+          attempts.add(MidiSoundFontDownloadAttempt(url, problem));
+          continue;
+        }
+        MidiSoundFontEntry entry;
+        try {
+          entry = await _add(
+            bytes,
+            id: source.id,
+            name: source.name,
+            source: source,
+            url: url,
+          );
+        } catch (e) {
+          // Not a SoundFont.
+          await deletePart(source.id);
+          attempts.add(MidiSoundFontDownloadAttempt(url, e));
+          continue;
+        }
+        await deletePart(source.id);
+        return entry;
       }
-      var total = response.contentLength ?? source.size;
-      var builder = BytesBuilder(copy: false);
-      await for (var chunk in response.stream) {
-        builder.add(chunk);
-        onProgress?.call(builder.length, total);
-      }
-      var bytes = builder.takeBytes();
-      var size = source.size;
-      if (size != null && bytes.length != size) {
-        throw MidiSoundFontDownloadException(
-          '${source.url}: ${bytes.length} bytes, $size expected',
-        );
-      }
-      var gitBlobSha1 = source.gitBlobSha1;
-      if (gitBlobSha1 != null && _gitBlobSha1(bytes) != gitBlobSha1) {
-        throw MidiSoundFontDownloadException(
-          '${source.url}: not the file expected (git blob $gitBlobSha1)',
-        );
-      }
-      return await _add(
-        bytes,
-        id: source.id,
-        name: source.name,
-        source: source,
-      );
     } finally {
       if (_client == null) {
         client.close();
       }
     }
+    if (attempts.length == 1) {
+      throw MidiSoundFontDownloadException(
+        '${attempts.single}',
+        attempts: attempts,
+      );
+    }
+    throw MidiSoundFontDownloadException(
+      '${source.id}: no location gave the file',
+      attempts: attempts,
+    );
+  }
+
+  /// Why [bytes] are not the file of [source], null when they are (or when
+  /// the source gives nothing to check).
+  MidiSoundFontDownloadException? _problem(
+    Uint8List bytes,
+    MidiSoundFontSource source,
+  ) {
+    var size = source.size;
+    if (size != null && bytes.length != size) {
+      return MidiSoundFontDownloadException(
+        '${bytes.length} bytes, $size expected',
+      );
+    }
+    var expectedSha256 = source.sha256;
+    if (expectedSha256 != null &&
+        sha256.convert(bytes).toString() != expectedSha256) {
+      return MidiSoundFontDownloadException(
+        'not the file expected (SHA-256 $expectedSha256)',
+      );
+    }
+    var gitBlobSha1 = source.gitBlobSha1;
+    if (gitBlobSha1 != null && _gitBlobSha1(bytes) != gitBlobSha1) {
+      return MidiSoundFontDownloadException(
+        'not the file expected (git blob $gitBlobSha1)',
+      );
+    }
+    return null;
+  }
+
+  /// The whole file of [source] from [url], into its part (resumed when
+  /// there is one), then read back.
+  Future<Uint8List> _fetchPart(
+    http.Client client,
+    Uri url,
+    MidiSoundFontSource source, {
+    required void Function(int received, int? total)? onProgress,
+    required MidiSoundFontDownloadCancel? cancel,
+    required Duration idleTimeout,
+  }) async {
+    var part = _partFile(source.id);
+    var have = await partSize(source.id);
+    var size = source.size;
+    if (size != null && have >= size) {
+      if (have == size) {
+        return part.readAsBytes();
+      }
+      await deletePart(source.id);
+      have = 0;
+    }
+    var request = http.Request('GET', url);
+    if (have > 0) {
+      request.headers['range'] = 'bytes=$have-';
+    }
+    var response = await client.send(request).timeout(idleTimeout);
+    int received;
+    int? total;
+    if (have > 0 && response.statusCode == 206) {
+      received = have;
+      total = _contentRangeTotal(response.headers['content-range']) ?? size;
+    } else if (response.statusCode == 200) {
+      // The whole file: what was there is replaced.
+      received = 0;
+      total = response.contentLength ?? size;
+    } else {
+      // Drain it: the connection is reused.
+      await response.stream.drain<void>();
+      throw MidiSoundFontDownloadException('HTTP ${response.statusCode}');
+    }
+    await fileSystem.directory(path).create(recursive: true);
+    var replace = received == 0;
+    var buffer = BytesBuilder(copy: false);
+    Future<void> flush() async {
+      if (buffer.isEmpty && !replace) {
+        return;
+      }
+      await part.writeAsBytes(
+        buffer.takeBytes(),
+        mode: replace ? FileMode.write : FileMode.append,
+      );
+      replace = false;
+    }
+
+    if (received > 0) {
+      // Resumed: where it starts from.
+      onProgress?.call(received, total);
+    }
+    try {
+      await for (var chunk in response.stream.timeout(idleTimeout)) {
+        buffer.add(chunk);
+        received += chunk.length;
+        onProgress?.call(received, total);
+        if (cancel?.isCancelled ?? false) {
+          throw MidiSoundFontDownloadCancelledException(source.id, received);
+        }
+        if (buffer.length >= _flushSize) {
+          await flush();
+        }
+      }
+    } finally {
+      // What came is kept, for a resume (cancel, timeout, lost network).
+      await flush();
+    }
+    return part.readAsBytes();
   }
 
   /// SoundFont [source], downloaded first when not in the library yet: the
   /// default SoundFont on first use. Its file already there under another id
-  /// (imported) is found without a download when [source] gives its size
-  /// and git blob id; otherwise it is downloaded, then recognized.
+  /// (imported) is found without a download when [source] gives its SHA-256,
+  /// or its size and git blob id; otherwise it is downloaded, then
+  /// recognized.
   Future<MidiSoundFontEntry> ensure(
     MidiSoundFontSource source, {
     void Function(int received, int? total)? onProgress,
+    MidiSoundFontDownloadCancel? cancel,
+    Uri? soundServer,
   }) async =>
       await entry(source.id) ??
-      await _sameFile(source) ??
-      await download(source, onProgress: onProgress);
+      await sameFile(source) ??
+      await download(
+        source,
+        onProgress: onProgress,
+        cancel: cancel,
+        soundServer: soundServer,
+      );
 
-  /// The entry holding the file of [source] (its size and git blob id),
-  /// null when unknown.
-  Future<MidiSoundFontEntry?> _sameFile(MidiSoundFontSource source) async {
+  /// The entry holding the file of [source] (its SHA-256, or its size and
+  /// git blob id), null when none (or when the source gives neither).
+  Future<MidiSoundFontEntry?> sameFile(MidiSoundFontSource source) async {
+    var expectedSha256 = source.sha256;
+    if (expectedSha256 != null) {
+      for (var entry in await list()) {
+        if (entry.sha256 == expectedSha256) {
+          return entry;
+        }
+      }
+      return null;
+    }
     var size = source.size;
     var gitBlobSha1 = source.gitBlobSha1;
     if (size == null || gitBlobSha1 == null) {
@@ -413,6 +647,16 @@ class MidiSoundFontLibrary {
       }
     });
   }
+}
+
+/// The total of a `Content-Range` header (`bytes 100-199/1000`), null when
+/// unknown.
+int? _contentRangeTotal(String? contentRange) {
+  if (contentRange == null) {
+    return null;
+  }
+  var slash = contentRange.lastIndexOf('/');
+  return slash < 0 ? null : int.tryParse(contentRange.substring(slash + 1));
 }
 
 /// The git blob id of [bytes]: the SHA-1 of `blob <size>\0` and the bytes.

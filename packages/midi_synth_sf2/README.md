@@ -126,3 +126,36 @@ reverb and chorus on, in blocks of 128 frames:
 | AOT | 95x | 62x | 45 ms |
 | dart2js (Chrome) | 75x | 50x | 131 ms |
 | dart2wasm (Chrome) | 29x | 18x | 504 ms |
+
+It also renders one track per channel, as an app's mixer does, mixed by the
+hosts' `MidiStereoMixdown`: 16 synths with their reverb and chorus, 16 dry
+synths, and 16 dry synths sending to the shared reverb of the engine (their CC
+91, 40 when none). On 2026-11-17, on a Linux x64 desktop (other work running),
+`pop.mid` with GeneralUser GS 2.0.3, blocks of 128 frames:
+
+| Build | 1 synth, effects | 16 synths, effects | 16 dry synths | 16 dry synths + shared reverb |
+|---|---|---|---|---|
+| VM (JIT) | 68.6x | 15.3x | 65.9x | 51.7x |
+| AOT | 80.4x | 15.5x | 76.5x | 56.5x |
+| dart2js (Chrome) | 57.1x | 9.1x | 35.8x | 33.4x |
+| dart2wasm (Chrome) | 9.9x | 2.1x | 10.9x | 8.9x |
+
+In a browser, by hand: copy the files to `.local/benchmark/sound_font.sf2` and
+`.local/benchmark/song.mid`, then
+`dart test -p chrome test/benchmark_web_test_manual.dart` (add `-c dart2wasm`
+for wasm). It runs `tool/benchmark_lines.dart`, which has no `dart:io`.
+
+## Shared reverb and tuning
+
+- One track per channel: give each a dry synth (`MidiSynthSpec(soundFont: id,
+  effects: false)`) and send it to the shared reverb of the engine
+  (`player.setReverb(track, send)`, the sends of `midiReverbSends`). At the
+  default send of melty (40 / 127), a dry track on the bus sounds as the synth
+  with its own reverb while its notes hold, to the rounding of the floats; in a
+  release, melty stops feeding its own reverb once a voice is quiet, the bus
+  does not (a test compares them).
+- `player.tuneCents` (or `MidiEngine.tuneCents`) reaches the synth as RPN 1,
+  which dart_melty_soundfont 2.0.0 handles: the voices sounding follow at once.
+  The tiny SoundFont's 440 Hz sine plays at 442.0 Hz at +7.85 cents, in the
+  engine, the isolate host and the AudioWorklet. The percussion channel is not
+  tuned.

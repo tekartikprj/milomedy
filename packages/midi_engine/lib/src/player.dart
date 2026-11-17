@@ -9,6 +9,7 @@ import 'dart:math' as math;
 import 'engine.dart';
 import 'mixer.dart';
 import 'sink.dart';
+import 'speed_trainer.dart';
 import 'timeline.dart';
 import 'transport.dart';
 
@@ -128,15 +129,40 @@ class MidiPlayer implements MidiTransport {
   }
 
   /// Sends the mix of every track to the output (after changing [mixer]
-  /// directly).
+  /// directly): the reverb too when the output mixes it (a
+  /// [MidiReverbSink], as `MidiStreamSink`; the others play dry).
   void applyMix() {
+    var reverb = switch (sink) {
+      MidiReverbSink sink => sink,
+      _ => null,
+    };
     for (var track = 0; track < mixer.tracks.length; track++) {
       sink.setTrackMix(
         track,
         gain: mixer.gainOf(track),
         pan: mixer.panOf(track),
       );
+      reverb?.setTrackReverb(track, mixer.reverbOf(track));
     }
+    reverb?.reverbLevel = mixer.reverbLevel;
+  }
+
+  /// Sets the send of [track] to the shared reverb, 0 to 1: heard when the
+  /// output mixes the reverb ([MidiReverbSink]).
+  @override
+  void setReverb(int track, double send) {
+    mixer.tracks[track].reverb = send;
+    applyMix();
+  }
+
+  /// The level of the shared reverb, 0 to 1.
+  @override
+  double get reverbLevel => mixer.reverbLevel;
+
+  @override
+  set reverbLevel(double level) {
+    mixer.reverbLevel = level;
+    applyMix();
   }
 
   /// Sets the volume of [track], 0 to 1.
@@ -187,6 +213,41 @@ class MidiPlayer implements MidiTransport {
   set transpose(int transpose) {
     engine.transpose = transpose;
     resync();
+  }
+
+  /// The tuning of the melodic channels, in cents.
+  @override
+  double get tuneCents => engine.tuneCents;
+
+  /// Sets the tuning: heard at once.
+  @override
+  set tuneCents(double cents) {
+    engine.tuneCents = cents;
+    resync();
+  }
+
+  @override
+  MidiSpeedTrainer? get speedTrainer => engine.speedTrainer;
+
+  @override
+  void setSpeedTrainer({
+    required double from,
+    required double to,
+    required double step,
+    int everyPasses = 1,
+  }) {
+    engine.speedTrainer = MidiSpeedTrainer(
+      from: from,
+      to: to,
+      step: step,
+      everyPasses: everyPasses,
+    );
+    resync();
+  }
+
+  @override
+  void clearSpeedTrainer() {
+    engine.speedTrainer = null;
   }
 
   /// Loops from [start] to [end] (song seconds), null for no loop.

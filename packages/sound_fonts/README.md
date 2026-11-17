@@ -52,8 +52,23 @@ my_font.sf2`).
 
 ## What it does
 
-- **Download** a `MidiSoundFontSource` with its progress; its size and git
-  blob id are checked when the source gives them.
+- **Download** a `MidiSoundFontSource` with its progress; its size, SHA-256
+  and git blob id are checked when the source gives them, whatever the
+  location.
+- **Alternate locations**: a source lists mirrors (`locations`) tried in
+  order after its `url`, and a `path` that a sound server of the user's
+  choice serves (`download(soundServer: Uri.parse('http://my-server/'))`,
+  tried first). A location fails on an http error, on 30 s with no byte
+  (`idleTimeout`) or on a file that is not the one expected; the
+  `MidiSoundFontDownloadException` lists each attempt.
+- **Resume and cancel**: the bytes go to `<id>.sf2.part` as they come (a few
+  MB at a time), `MidiSoundFontDownloadCancel` stops at the next chunk and
+  keeps them, the next download asks only for the rest (`Range`, a 200
+  answer starts over); `partSize(id)`, `deletePart(id)`.
+- **The catalog** (`MidiSoundFontCatalog`): the SoundFonts an app offers, as
+  the JSON `catalog.json` next to them (`fromJson`, `toJson`, `fetch(url)`,
+  `merge(newer)` for the copy built into the app and the one fetched), the
+  layout of a sound server (`midiSoundFontCatalogPath`).
 - **Import** any `.sf2` file (picked, dropped, fetched): it is read first, a
   file that is not a SoundFont is refused, the same bytes are never added
   twice (SHA-256).
@@ -73,7 +88,8 @@ a General MIDI and GS bank, 261 presets and 13 drum kits, 32 MB, free for any
 use. Its licence asks not to link directly to the author's download files:
 "Either link to my website, or provide your own local copy instead". So an app
 downloads a copy it hosts, given as `url`, and the download is checked against
-the file of version 2.0.3 (size and git blob id).
+the file of version 2.0.3 (size, SHA-256 `midiGeneralUserGsSha256` and git
+blob id).
 `midiGeneralUserGsUpstreamUrl`, the file in its repository at the commit of
 that version, is for development and tools.
 

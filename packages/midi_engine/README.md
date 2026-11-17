@@ -72,9 +72,14 @@ Common mistakes:
   - Speed, which keeps the place in the music.
   - Transpose: a note is released on the key it was played on, and the
     percussion channel is never transposed.
+  - Tune (`tuneCents`, -100 to 100 cents): a fine tuning (RPN 1) of each
+    melodic channel, sent again after each seek.
+  - A speed trainer on the loop (`speedTrainer`): the speed takes a step at the
+    frame where the loop starts again.
   - `replace` swaps the timeline in place (an edit).
-- **Mixer.** `MidiMixer` sets the volume, pan, mute and solo of each track,
-  then a master gain and a limiter. The pan behaves like a Web Audio
+- **Mixer.** `MidiMixer` sets the volume, pan, mute, solo and reverb send of
+  each track, then a master gain and a limiter. One shared reverb (`MidiReverb`,
+  a Freeverb) mixes what the tracks send to it. The pan behaves like a Web Audio
   StereoPannerNode, so every output sounds the same.
 - **Player.** `MidiPlayer` keeps an output fed a little ahead of its clock and
   reports the song position.
@@ -112,6 +117,9 @@ Common mistakes:
   - It sends numbered commands and ignores the state and position events that a
     newer command has made stale.
   - It tells the position heard, moved on by its clock and wrapped in a loop.
+  - It follows the meters of the tracks (`trackLevels`, `soundingKeys`,
+    `onMeters`) and the speed the host reports (`onSpeed`, the steps of a
+    speed trainer).
 - **Offline.** `midiRenderOffline` renders a whole timeline with the same mix
   and limiter as playback. `midiWavBytes` writes 16-bit WAV.
 - **Metronome.** `midiMetronomeTimeline` builds one or more measures of clicks
@@ -129,6 +137,88 @@ Common mistakes:
   - `toTimeline` builds what the engine plays. It takes a track per file track
     and channel, and an instrument override per channel. Swap the result in
     with `MidiPlayer.replace` to hear it at once.
+
+## Reverb, tune, meters and speed trainer
+
+Added on 2026-11-17, for an app with a mixer per channel. Every player has them
+(`MidiTransport`); nothing changes until they are used.
+
+```dart
+// player: a MidiHostPlayer (MidiWorkletPlayer, MidiIsolatePlayer or
+// midiCreatePlayer), one track per channel, each a dry SoundFont synth
+// (MidiSynthSpec(soundFont: 'gm', effects: false)).
+var timeline = song.toTimeline(trackOf: (_, channel) => channel);
+player.load(timeline);
+
+// The shared reverb: a send per track, 0 by default. The engine does not
+// follow the CC 91 of the file: midiReverbSends reads it (40 when none).
+var sends = midiReverbSends(timeline, trackCount: 16);
+for (var (track, send) in sends.indexed) {
+  player.setReverb(track, send);
+}
+player.reverbLevel = 1; // the master level, 1 by default
+
+// A4 at 442 Hz: about +7.85 cents, the percussion channel stays as it is.
+player.tuneCents = 7.85;
+
+// From 60 % to 100 % by 5 % at each pass of the loop.
+player
+  ..setLoop(8, 16)
+  ..setSpeedTrainer(from: 0.6, to: 1, step: 0.05);
+player.onSpeed.listen((speed) => print('speed $speed'));
+
+// The meters (hosted players), about 30 times a second while playing.
+player.onMeters.listen((meters) {
+  print('${meters.levels} ${meters.keys}');
+});
+```
+
+- **Reverb.** `MidiReverb` is the reverb of dart_melty_soundfont (Freeverb),
+  ported to the engine with its credit: the same filters, sample for sample. A
+  track sends to it after its volume (a muted track sends nothing), from 0 to 1.
+  At 40 / 127, a dry SoundFont track sounds as a synth with its own reverb
+  while its notes hold (melty stops feeding its reverb near the end of a
+  release; the bus does not). `MidiStereoMixdown` (the hosts), `MidiStreamSink`
+  (`MidiPlayer` on a raw stream) and `midiRenderOffline` mix it;
+  `MidiWebAudioSink` plays dry. The bus costs nothing while nothing is sent to
+  it and its tail is over. A pause or a stop cuts the tail, the end of a song
+  waits for it.
+- **Tune.** The engine sends RPN 1 (CC 101 = 0, CC 100 = 1, CC 6 and CC 38,
+  8192 + cents × 8192 / 100) to each melodic channel of the timeline, then
+  selects again the RPN the timeline had selected. It does so after each seek
+  and loop pass too, because the reset of the controllers of the chase resets
+  the tuning. A fine tuning set by the file gets the sum. The SoundFont synth
+  hears it at once; `DartSynth` takes it as a frequency factor of
+  2^(cents / 1200), from its next notes. Nothing is sent until it is set.
+- **Meters.** The host reports, with each position event (`sampleRate / 30`
+  frames apart: 29 a second at 44.1 kHz), the peak of each track since the
+  previous one (a `Float32List`, after its volume) and the keys sounding (an
+  `Int32List` of `track * 128 + key`: the notes started and not released,
+  transposed). `MidiHostPlayer.trackLevels`, `soundingKeys` and `meters` hold
+  the last ones, `onMeters` streams them; they go silent after a pause or a
+  stop. The isolate host sends them once heard, 0.1 s after rendering; the
+  worklet within the output latency.
+- **Speed trainer.** `setSpeedTrainer(from:, to:, step:, everyPasses:)` sets
+  the speed to `from` at once. Each time the loop starts again (every
+  `everyPasses` passes), the engine takes a step toward `to`, from the frame of
+  the loop start, whatever the block size. The position events carry the
+  speed, so `speed` follows on the page and `onSpeed` tells each step. Setting
+  the speed stops the trainer, as `clearSpeedTrainer()` does. No loop, no step.
+
+Speed on 2026-11-17, on a Linux x64 desktop (other work running): `pop.mid`
+(110 s) with GeneralUser GS 2.0.3, one track per channel, blocks of 128 frames,
+`tool/benchmark.dart` of `milomedy_midi_synth_sf2`:
+
+| Build | 16 synths with their effects | 16 dry synths | 16 dry synths + the shared reverb |
+|---|---|---|---|
+| VM (JIT) | 15.3x | 65.9x | 51.7x |
+| AOT | 15.5x | 76.5x | 56.5x |
+| dart2js (Chrome, the worklet) | 9.1x | 35.8x | 33.4x |
+| dart2wasm (Chrome) | 2.1x | 10.9x | 8.9x |
+
+In the worklet (dart2js), a block of 128 frames of the 16 tracks and the bus
+takes about 0.09 ms of its 2.9 ms. The reverb alone renders 110 s in 0.26 s on
+the VM.
 
 ## The AudioWorklet module
 

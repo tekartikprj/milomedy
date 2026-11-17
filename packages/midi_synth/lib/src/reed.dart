@@ -174,7 +174,7 @@ class ReedWaveTables {
 }
 
 /// A reed instrument: its timbre, its ranks, its loudness and envelope.
-class ReedInstrument implements DartInstrument {
+class ReedInstrument implements DartTunableInstrument {
   /// The timbre.
   final ReedTimbre timbre;
 
@@ -234,11 +234,16 @@ class ReedInstrument implements DartInstrument {
   set register(ReedRegister register) => ranks = register.ranks;
 
   @override
-  DartVoice voice(int key, double velocity, int sampleRate) {
+  DartVoice voice(
+    int key,
+    double velocity,
+    int sampleRate, {
+    double cents = 0,
+  }) {
     var tables = ReedWaveTables.of(timbre);
     var frequencies = [
       for (var rank in ranks)
-        midiKeyFrequency(key + 12 * rank.octave, cents: rank.cents),
+        midiKeyFrequency(key + 12 * rank.octave, cents: rank.cents + cents),
     ];
     return _ReedVoice(
       [for (var frequency in frequencies) tables.tableFor(frequency)],

@@ -3,11 +3,16 @@ name: milomedy-midi-engine
 description: >-
   Use when playing, rendering or reading MIDI in Dart with
   milomedy_midi_engine: MidiTimeline (MidiTimelineNote, MidiTimelineMessage),
-  MidiEngine (load, render, seek, setLoop, speed, transpose, replace),
+  MidiEngine (load, render, seek, setLoop, speed, transpose, tuneCents,
+  speedTrainer, replace),
   MidiPlayer with a MidiAudioSink (MidiWebAudioSink, MidiStreamSink,
   MidiSilentSink), MidiWorkletPlayer (web AudioWorklet, setup_web_worklet),
   MidiIsolatePlayer (io), MidiHostPlayer and MidiSynthSpec, the mixer
-  (volume, pan, mute, solo), midiRenderOffline and midiWavBytes, the
+  (volume, pan, mute, solo, setReverb and the shared MidiReverb,
+  midiReverbSends), the tuning (tuneCents, RPN 1), the speed trainer of a
+  loop (setSpeedTrainer, MidiSpeedTrainer, onSpeed), the meters of the
+  tracks (trackLevels, soundingKeys, onMeters, MidiTrackMeters),
+  midiRenderOffline and midiWavBytes, the
   metronome (midiMetronomeTimeline, midiMetronomeEngine), and MidiSong
   (fromBytes, toTimeline, MidiTempoMap, barBeatAt, tickOf, texts and lyrics).
 ---
@@ -75,6 +80,33 @@ timeline.
   percussion channel, loop it with `setLoop(timeline.start, timeline.end)`
   for an endless click; `midiMetronomeEngine(sampleRate:)` plays it with no
   asset.
+* Shared reverb: `player.setReverb(track, send)` (0 to 1, 0 by default,
+  after the track volume) and `player.reverbLevel` (1 by default). One
+  Freeverb (`MidiReverb`, melty's, sample for sample) on the mix of the
+  hosts, of `MidiStreamSink` and of `midiRenderOffline` (from
+  `MidiMixer.tracks[i].reverb`); `MidiWebAudioSink` plays dry. Give one dry
+  SoundFont synth per channel (`MidiSynthSpec(soundFont: id, effects:
+  false)`) and send them to the bus: 16 synths with their own effects are 4
+  times slower. The engine does not follow CC 91: set the sends from
+  `midiReverbSends(timeline, trackCount: 16)` (40 / 127 when the file has
+  none). A pause cuts the tail; the end waits for it.
+* Tune: `player.tuneCents = 7.85` (A4 at 442 Hz; -100 to 100, an
+  `ArgumentError` otherwise). RPN 1 to every melodic channel of the timeline
+  (never the percussion channel), sent again after each seek and loop pass
+  (the chase resets the controllers, the tuning too); a file's own RPN 1
+  gets the sum. The SoundFont synth hears it at once, `DartSynth` from its
+  next notes (`DartTunableInstrument`: the reeds, the click).
+* Speed trainer: `player.setSpeedTrainer(from: 0.6, to: 1, step: 0.05,
+  everyPasses: 1)` needs a loop (`setLoop`); the speed is `from` at once,
+  then steps toward `to` at the frame each pass starts. `speed` follows the
+  host's reports (`onSpeed` on a `MidiHostPlayer`); setting `speed` or
+  `clearSpeedTrainer()` stops it. `MidiSpeedTrainer.speedAfter(passes)`.
+* Meters (hosted players): `player.trackLevels` (peak per track since the
+  last report, after its volume), `player.soundingKeys` (a set of transposed
+  keys per track, notes started and not released), `player.meters` and
+  `onMeters` (a `MidiTrackMeters`), about 30 times a second while playing
+  (`MidiEngineHost.reportFrames`, `sampleRate / 30` by default), silent once
+  paused or stopped. The isolate host sends them when heard.
 * Tests: `MidiSilentSink(sampleRate:, clock: () => t, keep: true)` with a
   hand driven clock and `player.pump()`, or `engine.render(frames)` directly
   (`MidiRenderBlock.left/right` per track). `MidiEngineHost` and the

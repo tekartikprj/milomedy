@@ -9,6 +9,7 @@ import 'dart:typed_data';
 
 import 'package:milomedy_midi_synth/midi_synth.dart';
 
+import 'speed_trainer.dart';
 import 'timeline.dart';
 
 /// The frames of a render, a stereo pair of buffers per track.
@@ -80,6 +81,26 @@ class MidiEngine {
   double? _loopEnd;
   var _speed = 1.0;
 
+  MidiSpeedTrainer? _trainer;
+
+  /// The passes of the loop since the trainer was set.
+  var _passes = 0;
+
+  var _tuneCents = 0.0;
+
+  /// True once tuned: the tuning is sent from then on.
+  var _tuned = false;
+
+  /// The melodic channels of the timeline, as `track * 16 + channel`: they
+  /// get the tuning.
+  var _tuneTargets = const <int>[];
+
+  /// The RPN the timeline selected, by `track * 16 + channel`.
+  final _songRpn = <int, int>{};
+
+  /// The fine tuning (RPN 1) the timeline set, by `track * 16 + channel`.
+  final _songFineTuning = <int, int>{};
+
   /// An engine at [sampleRate], [synths] playing the tracks (a timeline
   /// event on a track without a synth is ignored).
   MidiEngine({required this.sampleRate, required List<MidiSynth> synths})
@@ -106,7 +127,7 @@ class MidiEngine {
       _loopStart == null ? null : (_loopStart!, _loopEnd!);
 
   /// The song seconds played in a second (heard from the next frame
-  /// rendered).
+  /// rendered). Setting it stops the [speedTrainer].
   double get speed => _speed;
 
   set speed(double speed) {
@@ -114,17 +135,55 @@ class MidiEngine {
       throw ArgumentError.value(speed, 'speed', 'must be positive');
     }
     _speed = speed;
+    _trainer = null;
   }
+
+  /// The speed trainer of the loop, null when none: setting one sets the
+  /// speed to its `from` at once, then each time the loop starts again
+  /// (every `everyPasses` passes) the speed takes its next step, from the
+  /// frame of the loop start. Nothing changes without a loop.
+  MidiSpeedTrainer? get speedTrainer => _trainer;
+
+  set speedTrainer(MidiSpeedTrainer? trainer) {
+    _trainer = trainer;
+    _passes = 0;
+    if (trainer != null) {
+      _speed = trainer.from;
+    }
+  }
+
+  /// The passes of the loop played since the [speedTrainer] was set.
+  int get loopPasses => _passes;
 
   /// The transposition, in semitones (heard from the next notes; the notes
   /// sounding are released on the key they were played on). The percussion
   /// channel is not transposed.
   var transpose = 0;
 
+  /// The tuning, in cents, -100 to 100 (0 by default), of the melodic
+  /// channels (not the percussion channel): a fine tuning (RPN 1) sent to
+  /// each of them, and again after each seek (whose reset of the
+  /// controllers resets it), heard at once by the SoundFont synth, from the
+  /// next notes by the Dart synths. A fine tuning set by the timeline itself
+  /// gets the sum. Until set, nothing is sent.
+  double get tuneCents => _tuneCents;
+
+  set tuneCents(double cents) {
+    if (!cents.isFinite || cents < -100 || cents > 100) {
+      throw ArgumentError.value(cents, 'tuneCents', 'must be -100 to 100');
+    }
+    _tuneCents = cents;
+    if (cents != 0) {
+      _tuned = true;
+    }
+    _sendTune();
+  }
+
   /// Loads [timeline] at [position] (its start by default): the synths are
   /// reset.
   void load(MidiTimeline timeline, {double? position}) {
     _timeline = timeline;
+    _tuneTargets = _melodicChannels(timeline);
     _sounding.clear();
     for (var synth in synths) {
       synth.reset();
@@ -139,8 +198,54 @@ class MidiEngine {
     var position = at ?? _position;
     _releaseAll();
     _timeline = timeline;
+    _tuneTargets = _melodicChannels(timeline);
     _seek(position);
   }
+
+  /// The melodic channels of [timeline] with a synth, as
+  /// `track * 16 + channel`.
+  List<int> _melodicChannels(MidiTimeline timeline) {
+    var channels = <int>{
+      for (var note in timeline.notes)
+        if (note.channel != midiPercussionChannel && note.track < synths.length)
+          note.track * 16 + note.channel,
+      for (var message in timeline.messages)
+        if (message.channel != midiPercussionChannel &&
+            message.track < synths.length)
+          message.track * 16 + message.channel,
+    };
+    return channels.toList()..sort();
+  }
+
+  /// Sends the tuning to the melodic channels of the timeline (with the
+  /// timeline's own fine tuning), then selects the RPN the timeline had
+  /// selected again.
+  void _sendTune() {
+    if (!_tuned) {
+      return;
+    }
+    var offset = midiFineTuningValue(_tuneCents) - 8192;
+    for (var target in _tuneTargets) {
+      var synth = synths[target >> 4];
+      var status = midiControlChange | (target & 0x0f);
+      var value = ((_songFineTuning[target] ?? 8192) + offset).clamp(0, 16383);
+      var rpn = _songRpn[target] ?? midiRpnNull;
+      synth
+        ..send(status, midiControllerRpnMsb, 0)
+        ..send(status, midiControllerRpnLsb, midiRpnFineTuning)
+        ..send(status, midiControllerDataEntry, value >> 7)
+        ..send(status, midiControllerDataEntryLsb, value & 0x7f)
+        ..send(status, midiControllerRpnMsb, rpn >> 7)
+        ..send(status, midiControllerRpnLsb, rpn & 0x7f);
+    }
+  }
+
+  /// The notes sounding (started, not released yet): their track, their
+  /// channel and the key played (transposed).
+  List<({int track, int channel, int key})> get soundingNotes => [
+    for (var sounding in _sounding)
+      (track: sounding.track, channel: sounding.channel, key: sounding.key),
+  ];
 
   /// Loops from [start] to [end] (song seconds), null to stop looping.
   void setLoop(double? start, double? end) {
@@ -201,6 +306,8 @@ class MidiEngine {
     );
     // The channel state there: the channels the timeline sets are reset,
     // then its messages before the position are sent again.
+    _songRpn.clear();
+    _songFineTuning.clear();
     if (messages.isNotEmpty) {
       var channels = <(int, int)>{
         for (var message in messages) (message.track, message.channel),
@@ -222,6 +329,7 @@ class MidiEngine {
         _send(messages[i]);
       }
     }
+    _sendTune();
     for (var i = 0; i < _nextNote; i++) {
       var note = notes[i];
       if (note.end - position >= restartMinimum) {
@@ -250,9 +358,46 @@ class MidiEngine {
   }
 
   void _send(MidiTimelineMessage message) {
-    if (message.track < synths.length) {
-      synths[message.track].send(message.status, message.data1, message.data2);
+    var track = message.track;
+    if (track >= synths.length) {
+      return;
     }
+    var status = message.status;
+    if (status & 0xf0 == midiControlChange) {
+      // Follows the RPN and the fine tuning set by the timeline: tuned, the
+      // fine tuning sent is the sum.
+      var target = track * 16 + (status & 0x0f);
+      var value = message.data2;
+      switch (message.data1) {
+        case midiControllerRpnMsb:
+          _songRpn[target] =
+              ((_songRpn[target] ?? midiRpnNull) & 0x7f) | (value << 7);
+        case midiControllerRpnLsb:
+          _songRpn[target] =
+              ((_songRpn[target] ?? midiRpnNull) & 0x3f80) | value;
+        case midiControllerResetAll:
+          _songRpn.remove(target);
+          _songFineTuning.remove(target);
+        case midiControllerDataEntry || midiControllerDataEntryLsb
+            when _songRpn[target] == midiRpnFineTuning:
+          var fine = _songFineTuning[target] ?? 8192;
+          fine = message.data1 == midiControllerDataEntry
+              ? (fine & 0x7f) | (value << 7)
+              : (fine & 0x3f80) | value;
+          _songFineTuning[target] = fine;
+          if (_tuned && message.channel != midiPercussionChannel) {
+            var tuned = (fine + midiFineTuningValue(_tuneCents) - 8192).clamp(
+              0,
+              16383,
+            );
+            synths[track]
+              ..send(status, midiControllerDataEntry, tuned >> 7)
+              ..send(status, midiControllerDataEntryLsb, tuned & 0x7f);
+            return;
+          }
+      }
+    }
+    synths[track].send(status, message.data1, message.data2);
   }
 
   void _noteOn(MidiTimelineNote note) {
@@ -299,8 +444,9 @@ class MidiEngine {
       return null;
     }
     // The position adds up the blocks rendered: rounding errors must not
-    // make the loop one frame longer.
-    return ((loopEnd - _position) / _speed * sampleRate - 1e-6).ceil();
+    // make the loop one frame longer. The loop jumps back within half a
+    // frame of its end (render): the same frame whatever the block size.
+    return ((loopEnd - _position) / _speed * sampleRate - 0.5).ceil();
   }
 
   /// Renders [frames] frames: the events due are sent at their frame, the
@@ -323,6 +469,12 @@ class MidiEngine {
       if (loopEnd != null && _position >= loopEnd - 0.5 * _speed / sampleRate) {
         _releaseAll();
         _seek(_loopStart!);
+        // The trainer's step, from the frame of the loop start.
+        var trainer = _trainer;
+        if (trainer != null) {
+          _passes++;
+          _speed = trainer.speedAfter(_passes);
+        }
       }
     }
     return MidiRenderBlock(left, right, frames, songStart, speed: speed);

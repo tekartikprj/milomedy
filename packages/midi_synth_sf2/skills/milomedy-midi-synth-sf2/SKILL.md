@@ -7,7 +7,8 @@ description: >-
   dart_melty_soundfont, reverbAndChorus, maximumPolyphony),
   midiSoundFontRegister for the isolate and AudioWorklet players
   (MidiSynthSpec(soundFont:), loadSoundFont), midiTinySoundFontBytes for
-  tests, and the midi_render command (MIDI file to WAV).
+  tests, the shared reverb and the tuning of dry SoundFont tracks, the
+  benchmark, and the midi_render command (MIDI file to WAV).
 ---
 
 # SoundFonts in the MIDI engine (milomedy_midi_synth_sf2)
@@ -57,6 +58,20 @@ Pure Dart (VM, dart2js, dart2wasm, Flutter): a SoundFont read by
   `dart run milomedy_midi_engine:setup_web_worklet` puts it in the worklet
   when the app depends on this package), then
   `await player.loadSoundFont('gm', bytes)`; the track is silent before.
+* Many tracks (one per channel, for a mixer): dry synths
+  (`MidiSynthSpec(soundFont: 'gm', effects: false)`, `reverbAndChorus:
+  false`) sending to the engine's shared reverb (`player.setReverb(track,
+  send)`, sends from `midiReverbSends(timeline, trackCount: 16)`): 16 synths
+  with their own effects render 4 times slower (dart2js 9x real time against
+  33x with the bus). The bus is melty's reverb, sample for sample; there is
+  no shared chorus.
+* Tuning: `player.tuneCents` (-100 to 100) becomes RPN 1 on each melodic
+  channel, which melty applies to the voices sounding at once; the
+  percussion channel is not tuned.
+* Speed: `dart run tool/benchmark.dart <file.sf2> <file.mid>` (VM, or
+  `dart compile exe`); in a browser, by hand, the files copied to
+  `.local/benchmark/sound_font.sf2` and `song.mid`:
+  `dart test -p chrome test/benchmark_web_test_manual.dart`.
 * Tests: `midiTinySoundFontBytes()` builds a 9774 byte SoundFont in code (a
   looped 440 Hz sine on bank 0 that every program falls back to, a 0.1 s
   noise on bank 128). Render with `reverbAndChorus: false` to get the

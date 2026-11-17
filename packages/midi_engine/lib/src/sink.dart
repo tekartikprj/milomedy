@@ -33,9 +33,20 @@ abstract class MidiAudioSink {
   Future<void> close();
 }
 
+/// An output that also mixes the shared reverb of the tracks (in Dart):
+/// `MidiPlayer` sends it the reverb of its mixer. The others play dry.
+abstract interface class MidiReverbSink {
+  /// The send of [track] to the shared reverb, 0 to 1, heard at once when
+  /// the output can.
+  void setTrackReverb(int track, double send);
+
+  /// Sets the level of the shared reverb in the mix, 0 to 1.
+  set reverbLevel(double level);
+}
+
 /// An output with no sound: its clock is a stopwatch (the tests, the
 /// platforms without an output yet); it keeps the blocks when asked.
-class MidiSilentSink implements MidiAudioSink {
+class MidiSilentSink implements MidiAudioSink, MidiReverbSink {
   @override
   final int sampleRate;
 
@@ -49,6 +60,13 @@ class MidiSilentSink implements MidiAudioSink {
 
   /// The gain and pan of each track set.
   final Map<int, (double, double)> mixes = {};
+
+  /// The reverb send of each track set.
+  final Map<int, double> reverbs = {};
+
+  /// The level of the shared reverb set.
+  @override
+  var reverbLevel = 1.0;
 
   /// Keeps the blocks scheduled.
   final bool keep;
@@ -83,6 +101,11 @@ class MidiSilentSink implements MidiAudioSink {
   @override
   void setTrackMix(int track, {required double gain, required double pan}) {
     mixes[track] = (gain, pan);
+  }
+
+  @override
+  void setTrackReverb(int track, double send) {
+    reverbs[track] = send;
   }
 
   @override

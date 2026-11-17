@@ -10,9 +10,11 @@ import 'dart:typed_data';
 import 'package:milomedy_midi_synth/midi_synth.dart';
 
 import 'engine.dart';
+import 'meters.dart';
 import 'mixer.dart';
 import 'protocol.dart';
 import 'sound_font_support.dart';
+import 'speed_trainer.dart';
 import 'synth_spec.dart';
 import 'transport.dart';
 
@@ -33,7 +35,8 @@ class MidiEngineHost {
   /// Sends an event to the player.
   final void Function(Map<String, Object?> event) send;
 
-  /// The frames between two position reports.
+  /// The frames between two position reports (with the meters): about 30
+  /// a second by default.
   final int reportFrames;
 
   final MidiStereoMixdown _mixdown;
@@ -53,13 +56,15 @@ class MidiEngineHost {
   /// What to do once faded out.
   void Function()? _afterFade;
 
-  /// A host of the synths of [synths] at [sampleRate].
+  /// A host of the synths of [synths] at [sampleRate], reporting its
+  /// position every [reportFrames] frames (`sampleRate / 30` by default).
   MidiEngineHost({
     required this.sampleRate,
     required List<MidiSynthSpec> synths,
     required this.send,
-    this.reportFrames = 4096,
+    int? reportFrames,
   }) : specs = List.unmodifiable(synths),
+       reportFrames = reportFrames ?? (sampleRate / 30).ceil(),
        engine = MidiEngine(
          sampleRate: sampleRate,
          synths: [for (var spec in synths) spec.build(sampleRate)],
@@ -73,6 +78,8 @@ class MidiEngineHost {
   void _setState(MidiPlayerState state) {
     _state = state;
     _untilReport = 0;
+    // The meters start again.
+    _mixdown.takePeaks(0);
     send({
       'type': MidiHostEvents.state,
       'state': state.name,
@@ -96,6 +103,7 @@ class MidiEngineHost {
     switch (command['type']) {
       case MidiHostCommands.load:
         _cancelFade();
+        _mixdown.silence();
         engine.load(midiTimelineFromMap(command['timeline'] as Map));
         _setState(MidiPlayerState.stopped);
       case MidiHostCommands.replace:
@@ -119,7 +127,7 @@ class MidiEngineHost {
           return;
         }
         if (engine.ended || engine.position >= timeline.end) {
-          engine.silence();
+          _silence();
           engine.seek(timeline.start);
         }
         _setState(MidiPlayerState.playing);
@@ -127,14 +135,14 @@ class MidiEngineHost {
         if (_state == MidiPlayerState.playing) {
           var at = engine.position;
           _fadeOut(() {
-            engine.silence();
+            _silence();
             engine.seek(at);
             _setState(MidiPlayerState.paused);
           });
         }
       case MidiHostCommands.stop:
         void stop() {
-          engine.silence();
+          _silence();
           var timeline = engine.timeline;
           if (timeline != null) {
             engine.seek(timeline.start);
@@ -154,13 +162,13 @@ class MidiEngineHost {
           if (_fadeLeft > 0) {
             // A pause or a stop fading out: it ends paused there.
             _afterFade = () {
-              engine.silence();
+              _silence();
               engine.seek(position);
               _setState(MidiPlayerState.paused);
             };
           }
         } else {
-          engine.silence();
+          _silence();
           engine.seek(position);
           _setState(MidiPlayerState.paused);
         }
@@ -171,6 +179,16 @@ class MidiEngineHost {
       case MidiHostCommands.speed:
         engine.speed = number('value');
         _untilReport = 0;
+      case MidiHostCommands.speedTrainer:
+        var trainer = command['trainer'] as Map?;
+        engine.speedTrainer = trainer == null
+            ? null
+            : MidiSpeedTrainer.fromMap(trainer);
+        _untilReport = 0;
+      case MidiHostCommands.tune:
+        // Heard at once by the SoundFont synth, from the next notes by the
+        // Dart synths: no resync, which would start the notes again.
+        engine.tuneCents = number('value');
       case MidiHostCommands.transpose:
         engine.transpose = (command['value'] as num).toInt();
         _resync();
@@ -182,7 +200,12 @@ class MidiEngineHost {
             track,
             gain: values[0].toDouble(),
             pan: values[1].toDouble(),
+            reverb: values.length > 2 ? values[2].toDouble() : null,
           );
+        }
+        var reverb = command['reverb'] as num?;
+        if (reverb != null) {
+          _mixdown.reverbLevel = reverb.toDouble();
         }
       case MidiHostCommands.synth:
         var track = (command['track'] as num).toInt();
@@ -225,9 +248,15 @@ class MidiEngineHost {
     if (_state == MidiPlayerState.playing) {
       _resync();
     } else {
-      engine.silence();
+      _silence();
       engine.seek(engine.position);
     }
+  }
+
+  /// Silences the synths and the reverb at once.
+  void _silence() {
+    engine.silence();
+    _mixdown.silence();
   }
 
   /// Plays again from the same place: a change heard at once.
@@ -266,10 +295,19 @@ class MidiEngineHost {
         'time': time,
         'speed': engine.speed,
         'seq': ?_seq,
+        ...midiMetersEventFields(
+          _mixdown.takePeaks(engine.synths.length),
+          engine.soundingNotes,
+        ),
       });
     }
     _untilReport -= frames;
+    var speed = engine.speed;
     _mixdown.mix(engine.render(frames), left, right);
+    if (engine.speed != speed) {
+      // A step of the speed trainer: told with the next block.
+      _untilReport = 0;
+    }
     if (_fadeLeft > 0) {
       for (var i = 0; i < frames; i++) {
         var gain = _fadeLeft > 0 ? _fadeLeft / _fadeFrames : 0.0;
@@ -286,9 +324,10 @@ class MidiEngineHost {
       }
       return;
     }
-    if (engine.ended) {
+    // The end, once the tail of the reverb is over too.
+    if (engine.ended && _mixdown.reverbIdle) {
       var timeline = engine.timeline!;
-      engine.silence();
+      _silence();
       engine.seek(timeline.start);
       _setState(MidiPlayerState.stopped);
     }

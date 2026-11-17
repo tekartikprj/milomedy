@@ -5,9 +5,17 @@ import 'dart:io';
 import 'package:milomedy_midi_engine/midi_engine.dart';
 import 'package:milomedy_midi_synth_sf2/midi_synth_sf2.dart';
 
+import 'benchmark_lines.dart';
+
 /// The real-time factor of the SoundFont synth: renders a MIDI file with a
-/// SoundFont (reverb and chorus on), as fast as possible, in blocks of 128
-/// frames (an AudioWorklet's) and of 2048.
+/// SoundFont, as fast as possible:
+///
+/// - one synth, reverb and chorus on, in blocks of 128 frames (an
+///   AudioWorklet's) and of 2048;
+/// - one track per channel (an app's mixer), in blocks of 128 frames mixed
+///   as the hosts do (`MidiStereoMixdown`): 16 synths with their reverb and
+///   chorus, 16 dry synths, then 16 dry synths sending to the shared reverb
+///   (the CC 91 of the file, 40 when none).
 ///
 /// `dart run tool/benchmark.dart <file.sf2> <file.mid>`, or compiled with
 /// `dart compile exe tool/benchmark.dart`.
@@ -27,20 +35,7 @@ Future<void> main(List<String> arguments) async {
     '${loading.elapsedMilliseconds} ms; ${song.notes.length} notes, '
     '${song.duration.toStringAsFixed(1)} s',
   );
-  for (var block in [128, 2048]) {
-    var engine = MidiEngine(
-      sampleRate: 44100,
-      synths: [MidiSoundFontSynth(soundFont)],
-    )..load(song.toTimeline());
-    var total = (song.duration * 44100).round();
-    var stopwatch = Stopwatch()..start();
-    for (var done = 0; done < total; done += block) {
-      engine.render(block);
-    }
-    var seconds = stopwatch.elapsedMicroseconds / 1e6;
-    print(
-      'blocks of $block: ${(song.duration / seconds).toStringAsFixed(1)}x '
-      'real time (${seconds.toStringAsFixed(2)} s)',
-    );
+  for (var line in midiBenchmark(soundFont, song)) {
+    print(line);
   }
 }

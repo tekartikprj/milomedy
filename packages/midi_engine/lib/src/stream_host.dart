@@ -49,6 +49,9 @@ class MidiStreamHost {
   /// A block rendered but not pushed yet (the stream was full).
   Float32List? _pending;
 
+  /// The position events of the blocks pushed, sent once heard.
+  final _positions = <Map<String, Object?>>[];
+
   final Float32List _left;
   final Float32List _right;
 
@@ -77,17 +80,28 @@ class MidiStreamHost {
 
   int get _nowFrame => (currentTime * sampleRate).floor();
 
-  /// The position events give the position heard when sent: the host
-  /// reports the blocks it renders, heard [latency] later.
+  /// The host reports the blocks it renders, heard [latency] later: their
+  /// position events (with the meters) are sent once heard, with the
+  /// position heard then.
   void _onHostEvent(Map<String, Object?> event) {
     if (event['type'] == MidiHostEvents.position) {
-      var speed = event['speed']! as double;
-      var heard =
-          (event['position']! as double) +
-          (currentTime - (event['time']! as double)) * speed;
-      send({...event, 'position': heard}..remove('time'));
+      _positions.add(event);
     } else {
       send(event);
+    }
+  }
+
+  /// Sends the position events heard by now.
+  void _sendHeard() {
+    var now = currentTime;
+    while (_positions.isNotEmpty &&
+        (_positions.first['time']! as double) <= now) {
+      var event = _positions.removeAt(0);
+      var speed = (event['speed']! as num).toDouble();
+      var heard =
+          (event['position']! as double) +
+          (now - (event['time']! as double)) * speed;
+      send({...event, 'position': heard}..remove('time'));
     }
   }
 
@@ -111,6 +125,7 @@ class MidiStreamHost {
       // Late: what is pushed now plays now.
       _written = now;
     }
+    _sendHeard();
     var latencyFrames = (latency * sampleRate).round();
     while (_written < now + latencyFrames) {
       var block = _pending ?? _render();

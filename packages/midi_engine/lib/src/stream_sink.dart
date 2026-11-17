@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'engine.dart';
 import 'mixer.dart';
+import 'reverb.dart';
 import 'sink.dart';
 
 /// A raw audio stream: plays the frames pushed one after the other at its
@@ -36,18 +37,21 @@ class _Queued {
   int get end => start + block.frames;
 }
 
-/// The mix of a track: its gain moves to [target] over a chunk.
+/// The mix of a track: its gain (and its reverb send) moves to [target]
+/// over a chunk.
 class _TrackMix {
   double gain;
   double target;
   double pan;
+  var reverb = 0.0;
+  var reverbTarget = 0.0;
 
   _TrackMix(this.gain, this.pan) : target = gain;
 }
 
 /// An output on a raw stream: its clock is a stopwatch (the stream plays in
 /// real time), the frames pushed run [latency] ahead of it.
-class MidiStreamSink implements MidiAudioSink {
+class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
   /// The stream.
   final MidiPcmStream stream;
 
@@ -81,6 +85,8 @@ class MidiStreamSink implements MidiAudioSink {
   var _exhaustCount = 0;
   final _tracks = <_TrackMix>[];
   final MidiLimiter _limiter;
+  MidiReverbBus? _reverb;
+  var _reverbLevel = 1.0;
   Timer? _timer;
   var _feedPending = false;
 
@@ -163,6 +169,24 @@ class MidiStreamSink implements MidiAudioSink {
     }
   }
 
+  @override
+  void setTrackReverb(int track, double send) {
+    var isNew = track >= _tracks.length;
+    var mix = _track(track)..reverbTarget = send;
+    if (isNew) {
+      mix.reverb = send;
+    }
+    if (send > 0) {
+      _reverb ??= MidiReverbBus(sampleRate: sampleRate)..level = _reverbLevel;
+    }
+  }
+
+  @override
+  set reverbLevel(double level) {
+    _reverbLevel = level;
+    _reverb?.level = level;
+  }
+
   /// Pushes the frames up to [latency] ahead of the clock (called every
   /// 10 ms while there is something to play).
   void feed() {
@@ -207,15 +231,29 @@ class MidiStreamSink implements MidiAudioSink {
     for (var queued in _queue) {
       trackCount = math.max(trackCount, queued.block.trackCount);
     }
+    var reverb = _reverb;
+    Float32List? sends;
+    var fed = false;
     for (var track = 0; track < trackCount; track++) {
       var mix = _track(track);
       var from = mix.gain;
       var to = mix.target;
       mix.gain = to;
+      var sendFrom = mix.reverb * from;
+      var sendTo = mix.reverbTarget * to;
+      mix.reverb = mix.reverbTarget;
       if (from == 0 && to == 0) {
         continue;
       }
       var pan = midiStereoPan(mix.pan);
+      Float32List? input;
+      if (reverb != null && (sendFrom > 0 || sendTo > 0)) {
+        if (!fed) {
+          fed = true;
+          sends = reverb.input(frames);
+        }
+        input = sends;
+      }
       for (var queued in _queue) {
         var block = queued.block;
         if (track >= block.trackCount ||
@@ -234,7 +272,22 @@ class MidiStreamSink implements MidiAudioSink {
           var r = right[frame - queued.start] * gain;
           out[2 * i] += l * pan.leftToLeft + r * pan.rightToLeft;
           out[2 * i + 1] += l * pan.leftToRight + r * pan.rightToRight;
+          if (input != null) {
+            input[i] +=
+                (left[frame - queued.start] + right[frame - queued.start]) *
+                (sendFrom + (sendTo - sendFrom) * i / frames) *
+                midiMasterGain;
+          }
         }
+      }
+    }
+    if (reverb != null && reverb.process(frames, fed: fed)) {
+      var level = reverb.level;
+      var wetLeft = reverb.left;
+      var wetRight = reverb.right;
+      for (var i = 0; i < frames; i++) {
+        out[2 * i] += wetLeft[i] * level;
+        out[2 * i + 1] += wetRight[i] * level;
       }
     }
     _limiter.process(out);

@@ -25,6 +25,21 @@ abstract class DartInstrument {
   DartVoice? voice(int key, double velocity, int sampleRate);
 }
 
+/// An instrument that can be tuned: [DartSynth] gives it the tuning of the
+/// channel (RPN 1 and 2) in [cents]. The others play in tune.
+abstract interface class DartTunableInstrument implements DartInstrument {
+  /// The voice of [key] at [velocity] (0 to 1) rendered at [sampleRate],
+  /// [cents] above its pitch (a frequency factor of 2^(cents / 1200)), null
+  /// when the instrument has no sound for [key].
+  @override
+  DartVoice? voice(
+    int key,
+    double velocity,
+    int sampleRate, {
+    double cents = 0,
+  });
+}
+
 /// The state of a channel.
 class _Channel {
   var program = 0;
@@ -32,9 +47,36 @@ class _Channel {
   var expression = 127;
   var sustain = false;
 
+  /// The registered parameter selected (RPN), [midiRpnNull] when none.
+  var rpn = midiRpnNull;
+
+  /// The fine tuning (RPN 1), 14 bits, 8192 in tune.
+  var fineTuning = 8192;
+
+  /// The coarse tuning (RPN 2), in semitones.
+  var coarseTuning = 0;
+
+  /// The tuning, in cents.
+  double get cents => coarseTuning * 100 + midiFineTuningCents(fineTuning);
+
+  /// As dart_melty_soundfont: the tuning is reset too.
   void resetControllers() {
     expression = 127;
     sustain = false;
+    rpn = midiRpnNull;
+    fineTuning = 8192;
+    coarseTuning = 0;
+  }
+
+  void dataEntry(int value, {required bool low}) {
+    switch (rpn) {
+      case midiRpnFineTuning:
+        fineTuning = low
+            ? (fineTuning & 0x3f80) | value
+            : (fineTuning & 0x7f) | (value << 7);
+      case midiRpnCoarseTuning when !low:
+        coarseTuning = value - 64;
+    }
   }
 
   /// The gain of the channel volume and expression, a square law as most
@@ -62,6 +104,10 @@ class _Sounding {
 /// A synth of [DartInstrument]s. Mono: every voice sounds in the middle
 /// (the mixer pans the track). It ignores the pan, pitch bend and pressure
 /// messages.
+///
+/// The tuning of a channel (RPN 1, fine, and RPN 2, coarse) tunes the next
+/// notes of its [DartTunableInstrument]s (the reeds, the click); the notes
+/// sounding keep their pitch.
 class DartSynth implements MidiSynth {
   @override
   final int sampleRate;
@@ -103,9 +149,11 @@ class DartSynth implements MidiSynth {
     var channel = status & 0x0f;
     switch (status & 0xf0) {
       case midiNoteOn when data2 > 0:
-        var voice = _instrumentOf(
-          channel,
-        )?.voice(data1, data2 / 127, sampleRate);
+        var instrument = _instrumentOf(channel);
+        var cents = _channels[channel].cents;
+        var voice = instrument is DartTunableInstrument && cents != 0
+            ? instrument.voice(data1, data2 / 127, sampleRate, cents: cents)
+            : instrument?.voice(data1, data2 / 127, sampleRate);
         if (voice != null) {
           _sounding.add(_Sounding(channel, data1, voice));
         }
@@ -170,6 +218,14 @@ class DartSynth implements MidiSynth {
       case midiControllerAllNotesOff:
         state.sustain = false;
         _releaseChannel(channel);
+      case midiControllerRpnMsb:
+        state.rpn = (state.rpn & 0x7f) | (value << 7);
+      case midiControllerRpnLsb:
+        state.rpn = (state.rpn & 0x3f80) | value;
+      case midiControllerDataEntry:
+        state.dataEntry(value, low: false);
+      case midiControllerDataEntryLsb:
+        state.dataEntry(value, low: true);
     }
   }
 

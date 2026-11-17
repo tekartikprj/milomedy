@@ -6,8 +6,10 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'meters.dart';
 import 'mixer.dart';
 import 'protocol.dart';
+import 'speed_trainer.dart';
 import 'synth_spec.dart';
 import 'timeline.dart';
 import 'transport.dart';
@@ -37,7 +39,16 @@ abstract class MidiHostPlayer implements MidiTransport {
   _Report? _report;
   var _speed = 1.0;
   var _transpose = 0;
+  var _tuneCents = 0.0;
+  MidiSpeedTrainer? _trainer;
   (double, double)? _loop;
+
+  /// The sequence number of the last command that set the speed: the speed
+  /// reported before is stale.
+  var _speedSeq = 0;
+  final _speedController = StreamController<double>.broadcast();
+  late MidiTrackMeters _meters;
+  final _metersController = StreamController<MidiTrackMeters>.broadcast();
   var _syncId = 0;
   final _syncs = <int, Completer<void>>{};
 
@@ -49,7 +60,9 @@ abstract class MidiHostPlayer implements MidiTransport {
   var _stateSeq = 0;
 
   /// A player of [trackCount] tracks.
-  MidiHostPlayer({required int trackCount}) : mixer = MidiMixer(trackCount);
+  MidiHostPlayer({required int trackCount}) : mixer = MidiMixer(trackCount) {
+    _meters = MidiTrackMeters.silent(trackCount);
+  }
 
   /// Sends [command] to the host (for implementations).
   void sendCommand(Map<String, Object?> command);
@@ -64,10 +77,17 @@ abstract class MidiHostPlayer implements MidiTransport {
 
   /// Sends [command], numbered; [changesState] for the commands after which
   /// the state and position events sent before are stale.
-  void _send(Map<String, Object?> command, {bool changesState = false}) {
+  void _send(
+    Map<String, Object?> command, {
+    bool changesState = false,
+    bool setsSpeed = false,
+  }) {
     _seq++;
     if (changesState) {
       _stateSeq = _seq;
+    }
+    if (setsSpeed) {
+      _speedSeq = _seq;
     }
     sendCommand({...command, 'seq': _seq});
   }
@@ -87,15 +107,32 @@ abstract class MidiHostPlayer implements MidiTransport {
         _position = (event['position'] as num).toDouble();
         if (state != MidiPlayerState.playing) {
           _report = null;
+          _silenceMeters();
         }
         _setState(state);
       case MidiHostEvents.position:
         var time = event['time'] as num?;
+        var speed = (event['speed'] as num).toDouble();
         _report = _Report(
           (event['position'] as num).toDouble(),
           time?.toDouble() ?? clock,
-          (event['speed'] as num).toDouble(),
+          speed,
         );
+        // The speed of the host (a trainer changes it), unless a newer
+        // command set it.
+        if ((seq == null || seq >= _speedSeq) && speed != _speed) {
+          _speed = speed;
+          _speedController.add(speed);
+        }
+        // Not after a pause or the end (the isolate host sends its reports
+        // once heard, after the state).
+        var meters = _state == MidiPlayerState.playing
+            ? MidiTrackMeters.fromEvent(event, mixer.tracks.length)
+            : null;
+        if (meters != null) {
+          _meters = meters;
+          _metersController.add(meters);
+        }
       case MidiHostEvents.sync:
         _syncs.remove((event['id'] as num).toInt())?.complete();
       case MidiHostEvents.error:
@@ -112,6 +149,32 @@ abstract class MidiHostPlayer implements MidiTransport {
 
   /// The errors reported by the host.
   Stream<String> get onError => _errorController.stream;
+
+  /// The speed changes made by the host: the steps of the speed trainer.
+  Stream<double> get onSpeed => _speedController.stream;
+
+  /// The meters of the tracks, as last reported by the host (about 30 times
+  /// a second while playing, silent otherwise).
+  MidiTrackMeters get meters => _meters;
+
+  /// The meters as they are reported, and when they go silent (a pause, a
+  /// stop).
+  Stream<MidiTrackMeters> get onMeters => _metersController.stream;
+
+  /// The peak level of each track since the previous report, after its
+  /// volume: 1 is full scale.
+  List<double> get trackLevels => _meters.levels;
+
+  /// The keys sounding on each track (the notes started and not released,
+  /// transposed), for a keyboard view.
+  List<Set<int>> get soundingKeys => _meters.keys;
+
+  void _silenceMeters() {
+    if (!_meters.isSilent) {
+      _meters = MidiTrackMeters.silent(mixer.tracks.length);
+      _metersController.add(_meters);
+    }
+  }
 
   /// Completes once the host has handled the commands sent before.
   Future<void> sync() {
@@ -138,6 +201,7 @@ abstract class MidiHostPlayer implements MidiTransport {
     _timeline = timeline;
     _position = timeline.start;
     _report = null;
+    _silenceMeters();
     _setState(MidiPlayerState.stopped);
     _send({
       'type': MidiHostCommands.load,
@@ -178,9 +242,66 @@ abstract class MidiHostPlayer implements MidiTransport {
       'type': MidiHostCommands.mix,
       'tracks': [
         for (var track = 0; track < mixer.tracks.length; track++)
-          [mixer.gainOf(track), mixer.panOf(track)],
+          [mixer.gainOf(track), mixer.panOf(track), mixer.reverbOf(track)],
       ],
+      'reverb': mixer.reverbLevel,
     });
+  }
+
+  @override
+  void setReverb(int track, double send) {
+    mixer.tracks[track].reverb = send;
+    _sendMix();
+  }
+
+  @override
+  double get reverbLevel => mixer.reverbLevel;
+
+  @override
+  set reverbLevel(double level) {
+    mixer.reverbLevel = level;
+    _sendMix();
+  }
+
+  @override
+  double get tuneCents => _tuneCents;
+
+  @override
+  set tuneCents(double cents) {
+    if (!cents.isFinite || cents < -100 || cents > 100) {
+      throw ArgumentError.value(cents, 'tuneCents', 'must be -100 to 100');
+    }
+    _tuneCents = cents;
+    _send({'type': MidiHostCommands.tune, 'value': cents});
+  }
+
+  @override
+  MidiSpeedTrainer? get speedTrainer => _trainer;
+
+  @override
+  void setSpeedTrainer({
+    required double from,
+    required double to,
+    required double step,
+    int everyPasses = 1,
+  }) {
+    var trainer = _trainer = MidiSpeedTrainer(
+      from: from,
+      to: to,
+      step: step,
+      everyPasses: everyPasses,
+    );
+    _speed = from;
+    _send({
+      'type': MidiHostCommands.speedTrainer,
+      'trainer': trainer.toMap(),
+    }, setsSpeed: true);
+  }
+
+  @override
+  void clearSpeedTrainer() {
+    _trainer = null;
+    _send({'type': MidiHostCommands.speedTrainer, 'trainer': null});
   }
 
   @override
@@ -216,7 +337,8 @@ abstract class MidiHostPlayer implements MidiTransport {
       throw ArgumentError.value(speed, 'speed', 'must be positive');
     }
     _speed = speed;
-    _send({'type': MidiHostCommands.speed, 'value': speed});
+    _trainer = null;
+    _send({'type': MidiHostCommands.speed, 'value': speed}, setsSpeed: true);
   }
 
   @override
@@ -269,6 +391,7 @@ abstract class MidiHostPlayer implements MidiTransport {
     }
     _position = position;
     _report = null;
+    _silenceMeters();
     _setState(MidiPlayerState.paused);
     _send({'type': MidiHostCommands.pause}, changesState: true);
   }
@@ -277,6 +400,7 @@ abstract class MidiHostPlayer implements MidiTransport {
   void stop() {
     _position = _timeline?.start ?? 0;
     _report = null;
+    _silenceMeters();
     _setState(MidiPlayerState.stopped);
     _send({'type': MidiHostCommands.stop}, changesState: true);
   }
@@ -304,5 +428,7 @@ abstract class MidiHostPlayer implements MidiTransport {
     _syncs.clear();
     await _stateController.close();
     await _errorController.close();
+    await _speedController.close();
+    await _metersController.close();
   }
 }

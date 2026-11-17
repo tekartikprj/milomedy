@@ -55,7 +55,13 @@ the `milomedy-midi-engine` skill.
   app): `await old.close()` before `midiCreatePlayer` of the next one;
   closing the old one after would stop the device of the new one.
 * The frames are pushed 0.1 s ahead: `position` is what is heard, a change
-  (speed, transpose, a seek) is heard within that.
+  (speed, transpose, a seek) is heard within that. The meters
+  (`trackLevels`, `soundingKeys`, `onMeters`) and the speed reported by a
+  speed trainer (`onSpeed`) come when heard too, about 30 times a second.
+* Mixer per channel: one dry SoundFont synth per channel
+  (`MidiSynthSpec(soundFont: id, effects: false)`) with `setReverb(track,
+  send)` to the shared reverb, `tuneCents`, `setSpeedTrainer` on the loop:
+  see the `milomedy-midi-engine` skill.
 * `flutter test` has no native mp_audio_stream: `midiCreatePlayer` fails
   with a `StateError`. Test the logic with the engine (a `MidiPlayer` on a
   `MidiSilentSink`, or `MidiIsolatePlayer.spawn` with a capturing

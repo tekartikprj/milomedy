@@ -225,4 +225,119 @@ void main() {
     expect(midiKeyFrequency(57), closeTo(220, 1e-9));
     expect(midiKeyFrequency(69, cents: 100), closeTo(466.16, 0.01));
   });
+
+  group('tuning', () {
+    /// Sends the fine tuning (RPN 1) [value] to [channel] of [synth].
+    void fineTuning(MidiSynth synth, int value, {int channel = 0}) {
+      synth
+        ..send(midiControlChange | channel, midiControllerRpnMsb, 0)
+        ..send(midiControlChange | channel, midiControllerRpnLsb, 1)
+        ..send(midiControlChange | channel, midiControllerDataEntry, value >> 7)
+        ..send(
+          midiControlChange | channel,
+          midiControllerDataEntryLsb,
+          value & 0x7f,
+        )
+        ..send(midiControlChange | channel, midiControllerRpnMsb, 127)
+        ..send(midiControlChange | channel, midiControllerRpnLsb, 127);
+    }
+
+    test('the RPN 1 value of cents', () {
+      expect(midiFineTuningValue(0), 8192);
+      expect(midiFineTuningValue(-100), 0);
+      expect(midiFineTuningValue(100), 16383);
+      expect(midiFineTuningValue(7.85), 8835);
+      expect(midiFineTuningCents(8835), closeTo(7.85, 0.01));
+      expect(midiFineTuningCents(8192), 0);
+    });
+
+    test('a click at 440 Hz plays at 442 Hz after +7.85 cents', () {
+      // A long sine: a click that decays slowly.
+      const sine = ClickInstrument(
+        frequency: 440,
+        accentFrequency: 440,
+        decay: 100,
+        length: 2,
+      );
+      var synth = DartSynth(sampleRate: 44100, instrument: sine);
+      double frequency(int channel) {
+        synth.send(midiNoteOn | channel, 60, 127);
+        var hz = _frequency(_render(synth, 44100), 44100);
+        synth.reset();
+        return hz;
+      }
+
+      expect(frequency(0), closeTo(440, 0.01));
+      fineTuning(synth, midiFineTuningValue(7.85));
+      synth.send(midiNoteOn, 60, 127);
+      expect(_frequency(_render(synth, 44100), 44100), closeTo(442, 0.05));
+      // Another channel stays in tune.
+      synth.reset();
+      fineTuning(synth, midiFineTuningValue(7.85));
+      expect(frequency(1), closeTo(440, 0.01));
+      // A reset of the controllers resets the tuning (as melty does).
+      fineTuning(synth, midiFineTuningValue(7.85));
+      synth.send(midiControlChange, midiControllerResetAll);
+      expect(frequency(0), closeTo(440, 0.01));
+      // RPN 2: an octave down.
+      synth
+        ..reset()
+        ..send(midiControlChange, midiControllerRpnMsb, 0)
+        ..send(midiControlChange, midiControllerRpnLsb, 2)
+        ..send(midiControlChange, midiControllerDataEntry, 64 - 12)
+        ..send(midiNoteOn, 60, 127);
+      expect(_frequency(_render(synth, 44100), 44100), closeTo(220, 0.01));
+      // The null RPN: the data entry changes nothing.
+      synth
+        ..reset()
+        ..send(midiControlChange, midiControllerDataEntry, 100)
+        ..send(midiNoteOn, 60, 127);
+      expect(_frequency(_render(synth, 44100), 44100), closeTo(440, 0.01));
+    });
+
+    test('the reed follows the tuning of its channel', () {
+      double reedFrequency(int? value, {int channel = 0}) {
+        var synth = DartSynth(
+          sampleRate: 44100,
+          instrument: ReedInstrument.treble(),
+        );
+        if (value != null) {
+          fineTuning(synth, value, channel: channel);
+        }
+        synth.send(midiNoteOn, 69, 127);
+        return _frequency(_render(synth, 44100).sublist(4410), 44100);
+      }
+
+      var inTune = reedFrequency(null);
+      expect(
+        reedFrequency(midiFineTuningValue(7.85)) / inTune,
+        closeTo(math.pow(2, 7.85 / 1200), 1e-4),
+      );
+      expect(
+        reedFrequency(midiFineTuningValue(-50)) / inTune,
+        closeTo(math.pow(2, -50 / 1200), 1e-4),
+      );
+      // Tuning another channel.
+      expect(reedFrequency(0, channel: 1), inTune);
+    });
+  });
+}
+
+/// The frequency of the rising zero crossings of [samples] (interpolated):
+/// the frequency of a wave crossing zero upwards once a period.
+double _frequency(List<double> samples, int sampleRate) {
+  double? first;
+  var last = 0.0;
+  var count = 0;
+  for (var i = 1; i < samples.length; i++) {
+    var a = samples[i - 1];
+    var b = samples[i];
+    if (a < 0 && b >= 0) {
+      var at = i - 1 + a / (a - b);
+      first ??= at;
+      last = at;
+      count++;
+    }
+  }
+  return (count - 1) * sampleRate / (last - first!);
 }

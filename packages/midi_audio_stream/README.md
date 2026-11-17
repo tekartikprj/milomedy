@@ -62,6 +62,11 @@ the SoundFont with `await player.loadSoundFont(id, bytes)`; a
 
 ## Good to know
 
+- The player is a `MidiHostPlayer` of the engine: besides the transport and
+  the mixer, it has the shared reverb (`setReverb`, `reverbLevel`), the tuning
+  (`tuneCents`), the speed trainer of a loop (`setSpeedTrainer`, `onSpeed`)
+  and the meters of the tracks (`trackLevels`, `soundingKeys`, `onMeters`).
+  On io, the meters come when heard, 0.1 s after rendering.
 - `mp_audio_stream` has a single native stream for the whole app: one
   player at a time. Close the old player before creating the next one;
   closing it after would stop the device the new one plays on.

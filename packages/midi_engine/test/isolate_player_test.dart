@@ -98,6 +98,68 @@ void main() {
     expect(states, [MidiPlayerState.playing, MidiPlayerState.paused]);
   });
 
+  test('meters, the speed trainer, the reverb and the tuning', () async {
+    var captured = ReceivePort();
+    var closed = Completer<void>();
+    var left = <double>[];
+    captured.listen((message) {
+      if (message is Float32List) {
+        for (var i = 0; i < message.length; i += 2) {
+          left.add(message[i]);
+        }
+      } else if (message == 'closed') {
+        closed.complete();
+      }
+    });
+    var player = await MidiIsolatePlayer.spawn(
+      synths: [
+        MidiSynthSpec.metronome,
+        const MidiSynthSpec(instrument: MidiInstrumentIds.reed),
+      ],
+      sampleRate: _rate,
+      openStream: _captureTo(captured.sendPort),
+    );
+    var errors = <String>[];
+    player.onError.listen(errors.add);
+    var meters = <MidiTrackMeters>[];
+    player.onMeters.listen(meters.add);
+    var speeds = <double>[];
+    player.onSpeed.listen(speeds.add);
+    var timeline = MidiTimeline(
+      notes: [
+        ...midiMetronomeTimeline(bpm: 240, beats: 2).notes,
+        const MidiTimelineNote(start: 0, duration: 0.5, key: 60, track: 1),
+      ],
+      start: 0,
+      end: 0.5,
+    );
+    player
+      ..load(timeline)
+      ..setLoop(0, 0.5)
+      ..setSpeedTrainer(from: 1, to: 1.5, step: 0.25)
+      ..setReverb(1, 0.5)
+      ..reverbLevel = 0.8
+      ..tuneCents = 10;
+    await player.play();
+    await player.sync();
+    // The last step is heard about 1 s in.
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    expect(player.soundingKeys[1], {60});
+    expect(player.trackLevels[1], greaterThan(0));
+    // A pass at 1, one at 1.25, then 1.5.
+    expect(speeds, [1.25, 1.5]);
+    expect(player.speed, 1.5);
+    player.pause();
+    await player.sync();
+    expect(player.meters.isSilent, isTrue);
+    await player.close();
+    await closed.future;
+    captured.close();
+    expect(errors, isEmpty);
+    expect(meters.length, greaterThan(5));
+    expect(left.any((sample) => sample != 0), isTrue);
+  });
+
   test('the stream cannot be opened', () async {
     await expectLater(
       MidiIsolatePlayer.spawn(

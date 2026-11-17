@@ -39,8 +39,18 @@ abstract final class MidiHostCommands {
   static const transpose = 'transpose';
 
   /// Sets the gain and pan of the tracks (`tracks`: a list of
-  /// `[gain, pan]`).
+  /// `[gain, pan]`, or `[gain, pan, reverb]` with the send of the track to
+  /// the shared reverb, 0 to 1), and the level of the reverb in the mix
+  /// (`reverb`, 0 to 1, unchanged when missing).
   static const mix = 'mix';
+
+  /// Sets the tuning of the melodic channels (`value`, in cents, -100 to
+  /// 100).
+  static const tune = 'tune';
+
+  /// Sets the speed trainer of the loop (`trainer`, a map of
+  /// `MidiSpeedTrainer.toMap`), none when `trainer` is null.
+  static const speedTrainer = 'speedTrainer';
 
   /// Sets the synth of `track` (`spec`).
   static const synth = 'synth';
@@ -60,7 +70,11 @@ abstract final class MidiHostEvents {
   static const state = 'state';
 
   /// The song `position` at `time` of the output clock (no `time`: heard
-  /// when received), playing at `speed`.
+  /// when received), playing at `speed` (which a speed trainer changes),
+  /// with the meters of the tracks since the previous one (`levels`, a
+  /// Float32List of the peak of each track, and `keys`, an Int32List of
+  /// `track * 128 + key` for each note sounding: `midiMetersEventFields`).
+  /// About 30 a second while playing.
   static const position = 'position';
 
   /// The answer to a `sync` command (`id`).

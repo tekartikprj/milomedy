@@ -11,7 +11,7 @@ import 'midi_synth.dart';
 /// [length] seconds whatever the note off. The accent keys (the General
 /// MIDI hi wood block and metronome bell) sound at [accentFrequency], the
 /// other keys at [frequency].
-class ClickInstrument implements DartInstrument {
+class ClickInstrument implements DartTunableInstrument {
   /// The frequency of the other keys, in Hz.
   final double frequency;
 
@@ -41,8 +41,15 @@ class ClickInstrument implements DartInstrument {
   });
 
   @override
-  DartVoice voice(int key, double velocity, int sampleRate) => _ClickVoice(
-    (accentKeys.contains(key) ? accentFrequency : frequency) / sampleRate,
+  DartVoice voice(
+    int key,
+    double velocity,
+    int sampleRate, {
+    double cents = 0,
+  }) => _ClickVoice(
+    (accentKeys.contains(key) ? accentFrequency : frequency) *
+        (cents == 0 ? 1 : math.pow(2, cents / 1200)) /
+        sampleRate,
     gain * velocity,
     decay * sampleRate,
     (length * sampleRate).round(),

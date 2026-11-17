@@ -45,13 +45,30 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
 * `import(bytes, name:)` parses the file first (a non SoundFont throws), its
   id is a slug of the name (`_2`, `_3` when taken); the same bytes already
   there return the existing entry (SHA-256).
-* `download(source, onProgress:)` throws `MidiSoundFontDownloadException` on
-  a non 200 answer, a wrong size or a wrong git blob id (when the source
-  gives them); nothing is added then. The whole file is kept in memory until
-  checked.
-* `ensure(source)` returns the entry of `source.id`, or the same file
-  imported under another id (found without downloading when the source gives
-  `size` and `gitBlobSha1`), or downloads it.
+* `download(source, onProgress:, cancel:, soundServer:, idleTimeout:)` tries
+  `source.candidates(soundServer:)` in order: the sound server (when the
+  source has a `path`), `url`, `locations`. A location fails on an http
+  error, on `idleTimeout` (30 s) with no byte, or on a file that is not the
+  expected one (size, `sha256`, `gitBlobSha1`, a SoundFont); the next is
+  tried. None: `MidiSoundFontDownloadException` with `attempts` (url, error
+  each); nothing is added. The entry's `url` is the location used.
+* The bytes go to `<id>.sf2.part` as they come (flushed every 4 MB): a
+  `MidiSoundFontDownloadCancel` stops at the next chunk with
+  `MidiSoundFontDownloadCancelledException`, the part kept; the next download
+  resumes with `Range: bytes=<part>-` (a 200 answer starts over); a complete
+  part is not downloaded again. `partSize(id)`, `deletePart(id)` for the
+  screen (resume, forget).
+* `ensure(source, ...)` returns the entry of `source.id`, or the same file
+  imported under another id (`sameFile(source)`: by `sha256`, else by `size`
+  and `gitBlobSha1`), or downloads it.
+* `MidiSoundFontCatalog` is the `catalog.json` of an app's SoundFonts
+  (`{"version": 1, "soundFonts": [{id, name, version, size, sha256,
+  gitBlobSha1, presets, licence, licencePath, path, locations}]}`):
+  `fromJson(json, base:)` (a `path` below `base` when no location; bad
+  entries skipped), `toJson()`, `source(id)`, `builtIn.merge(fetched)`
+  (fetched entries win, new ones after), `fetch(url, client:)`.
+  `midiSoundServerUri(server, path)` and `midiSoundFontCatalogPath`
+  (`public/sound_fonts/catalog.json`) are the sound server layout.
 * GeneralUser GS (`midiGeneralUserGs(url: hostedCopy)`): its licence asks not
   to link to the author's download files, so the app hosts a copy;
   `midiGeneralUserGsUpstreamUrl` is for development and tools only.
