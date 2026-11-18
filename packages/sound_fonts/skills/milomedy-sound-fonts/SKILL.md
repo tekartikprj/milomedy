@@ -98,7 +98,9 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
   `MidiSoundFontLibrary(..., keepCompressed: true)` stores a downloaded or
   imported SF3 as it is (`entry.compressed`, `read` gives the SF3,
   `presets(id)` reads the presets without decoding; an SF2 stays an SF2, an
-  SF3 unpacked before is found again). Then, for the session,
+  SF3 unpacked before is found again, and `replaceUnpacked(source)`
+  downloads it again in its place: the same id, its SF2 deleted). Then, for
+  the session,
   `var sampler = await midiSoundFontSampler(await library.read(id))` (a web
   worker of its own on the web, the bytes moved to it; io: here), and for
   each song `sampler.soundFont(sampler.samplesOf(timeline, margin: 12))`:

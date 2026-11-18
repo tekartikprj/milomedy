@@ -209,6 +209,13 @@ await player.loadSoundFont('gm', await sampler.soundFont(samples),
   sampler runs in the page (a console warning). A worker that dies makes the
   next calls throw a `MidiSoundFontWorkerException`: make another sampler.
   With dart2wasm the SF3 is copied out of the wasm memory and the copy moved.
+- An SF3 unpacked before (by a library without `keepCompressed`) stays an
+  SF2 loaded whole. `unpacked(source)` finds it, and
+  `replaceUnpacked(source)` downloads the SF3 of `source` again (checked,
+  resumed, as `download` does) and puts it in its place: the same id (the
+  default stays), the same sounds (its samples decode the same), its SF2
+  file deleted. Null when there is none to replace; run it in the
+  background after start, then play that SoundFont again.
 
 GeneralUser GS and the 28 example songs (`dart run tool/song_samples.dart
 <soundfont> <songs>...`, VM): a song plays 11 to 68 samples (median 21),

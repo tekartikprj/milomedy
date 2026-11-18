@@ -316,6 +316,139 @@ void main() {
       expect(entry.id, unpacked.id);
       expect(entry.compressed, isFalse);
     });
+
+    group('an SF3 unpacked before, replaced by itself', () {
+      var bytes = tinySf3();
+      var url = Uri.parse('https://example.com/tiny.sf3');
+      var source = MidiSoundFontSource(
+        id: 'tiny_sf3',
+        name: 'Tiny SF3',
+        url: url,
+        licence: 'test',
+        size: bytes.length,
+        sha256: sha256.convert(bytes).toString(),
+        compressed: true,
+      );
+      late List<Uri> asked;
+      late Uint8List served;
+      late http.Client client;
+
+      setUp(() {
+        asked = [];
+        served = bytes;
+        client = MockClient((request) async {
+          asked.add(request.url);
+          return request.url == url
+              ? http.Response.bytes(served, 200)
+              : http.Response('', 404);
+        });
+      });
+
+      /// A library holding the SF2 unpacked from [source] (an app before
+      /// keepCompressed, or offline), the default.
+      Future<MidiSoundFontLibrary> unpackedBefore() async {
+        var fileSystem = newFileSystemMemory();
+        var before = MidiSoundFontLibrary(
+          fileSystem: fileSystem,
+          path: 'sf',
+          client: client,
+        );
+        await before.setDefault((await before.download(source)).id);
+        asked.clear();
+        return MidiSoundFontLibrary(
+          fileSystem: fileSystem,
+          path: 'sf',
+          client: client,
+          keepCompressed: true,
+        );
+      }
+
+      test('the same id, the SF3 file only, the default kept', () async {
+        var library = await unpackedBefore();
+        var sf2Size = (await library.entry('tiny_sf3'))!.size;
+        expect((await library.unpacked(source))?.id, 'tiny_sf3');
+        var received = 0;
+        var entry = await library.replaceUnpacked(
+          source,
+          onProgress: (done, total) => received = done,
+        );
+        expect(entry!.id, 'tiny_sf3');
+        expect(entry.compressed, isTrue);
+        expect((entry.size, entry.sha256), (bytes.length, source.sha256));
+        expect(entry.size, isNot(sf2Size));
+        expect(entry.originalSha256, isNull);
+        expect((entry.url, entry.licence), ('$url', 'test'));
+        expect(received, bytes.length);
+        expect(await library.read('tiny_sf3'), bytes);
+        expect(await library.defaultId(), 'tiny_sf3');
+        var fileSystem = library.fileSystem;
+        expect(await fileSystem.file('sf/tiny_sf3.sf2').exists(), isFalse);
+        expect(await library.partSize('tiny_sf3'), 0);
+        // Read back from the index; still the file of the source.
+        var again = MidiSoundFontLibrary(
+          fileSystem: fileSystem,
+          path: 'sf',
+          keepCompressed: true,
+        );
+        expect((await again.entry('tiny_sf3'))!.compressed, isTrue);
+        expect((await again.sameFile(source))?.id, 'tiny_sf3');
+        expect(await again.list(), hasLength(2));
+        // Nothing left to replace.
+        expect(await library.unpacked(source), isNull);
+        expect(await library.replaceUnpacked(source), isNull);
+        expect(asked, [url]);
+      });
+
+      test('not without keepCompressed, nor with none unpacked', () async {
+        var library = await unpackedBefore();
+        expect(
+          await MidiSoundFontLibrary(
+            fileSystem: library.fileSystem,
+            path: 'sf',
+            client: client,
+          ).replaceUnpacked(source),
+          isNull,
+        );
+        expect(await keeping(client: client).replaceUnpacked(source), isNull);
+        expect(asked, isEmpty);
+      });
+
+      test('another file served: refused, the SF2 kept', () async {
+        var library = await unpackedBefore();
+        served = sf2;
+        await expectLater(
+          library.replaceUnpacked(source),
+          throwsA(isA<MidiSoundFontDownloadException>()),
+        );
+        var entry = (await library.entry('tiny_sf3'))!;
+        expect(entry.compressed, isFalse);
+        expect(entry.originalSha256, source.sha256);
+        expect(
+          midiSoundFontIsCompressed(await library.read(entry.id)),
+          isFalse,
+        );
+        expect(await library.partSize('tiny_sf3'), 0);
+      });
+
+      test('stopped once the SF3 kept: its SF2 file deleted next', () async {
+        var library = await unpackedBefore();
+        var fileSystem = library.fileSystem;
+        var sf2File = fileSystem.file('sf/tiny_sf3.sf2');
+        var sf2Bytes = await sf2File.readAsBytes();
+        await library.replaceUnpacked(source);
+        // As if stopped before deleting it.
+        await sf2File.writeAsBytes(sf2Bytes);
+        var next = MidiSoundFontLibrary(
+          fileSystem: fileSystem,
+          path: 'sf',
+          client: client,
+          keepCompressed: true,
+        );
+        expect(await next.replaceUnpacked(source), isNull);
+        expect(await sf2File.exists(), isFalse);
+        expect(await next.read('tiny_sf3'), bytes);
+      });
+    });
   });
 
   group('catalog', () {

@@ -505,6 +505,141 @@ class MidiSoundFontLibrary {
     MidiSoundFontDownloadCancel? cancel,
     Uri? soundServer,
     Duration idleTimeout = const Duration(seconds: 30),
+  }) => _downloadWith(
+    source,
+    onProgress: onProgress,
+    cancel: cancel,
+    soundServer: soundServer,
+    idleTimeout: idleTimeout,
+    keep: (bytes, url) async {
+      String? originalSha256;
+      var compressed = midiSoundFontIsCompressed(bytes);
+      if (compressed && !keepCompressed) {
+        originalSha256 = sha256.convert(bytes).toString();
+        bytes = await _decompress(bytes, onProgress: onUnpack);
+      }
+      return _add(
+        bytes,
+        id: source.id,
+        name: source.name,
+        source: source,
+        url: url,
+        originalSha256: originalSha256,
+        compressed: compressed && keepCompressed,
+      );
+    },
+  );
+
+  /// The SF2 unpacked from the SF3 [source] (by an app that did not
+  /// [keepCompressed], or before it did), null when none.
+  Future<MidiSoundFontEntry?> unpacked(MidiSoundFontSource source) async {
+    var expectedSha256 = source.sha256;
+    if (expectedSha256 == null) {
+      return null;
+    }
+    return (await list())
+        .where(
+          (entry) =>
+              !entry.compressed && entry.originalSha256 == expectedSha256,
+        )
+        .firstOrNull;
+  }
+
+  /// Replaces the SF2 [unpacked] from the SF3 [source] by that SF3,
+  /// downloaded again (as [download] does, resumed the same way), when
+  /// [keepCompressed]: the same id (the default and the choices made for
+  /// it stay), the same sounds (its samples decode the same), its file 9 MB
+  /// instead of 32 for GeneralUser GS, played per song. Null when there is
+  /// none to replace (or no more once downloaded: deleted meanwhile).
+  ///
+  /// An app stopped between the two files leaves the SF2 file there: the
+  /// next call deletes it.
+  Future<MidiSoundFontEntry?> replaceUnpacked(
+    MidiSoundFontSource source, {
+    void Function(int received, int? total)? onProgress,
+    MidiSoundFontDownloadCancel? cancel,
+    Uri? soundServer,
+    Duration idleTimeout = const Duration(seconds: 30),
+  }) async {
+    if (!keepCompressed) {
+      return null;
+    }
+    await _deleteReplaced(source);
+    var found = await unpacked(source);
+    if (found == null) {
+      return null;
+    }
+    return _downloadWith(
+      source,
+      onProgress: onProgress,
+      cancel: cancel,
+      soundServer: soundServer,
+      idleTimeout: idleTimeout,
+      keep: (bytes, url) async {
+        if (!midiSoundFontIsCompressed(bytes)) {
+          throw MidiSoundFontDownloadException('not an SF3');
+        }
+        var info = _Info.ofDefinition(MidiSoundFontDefinition.fromBytes(bytes));
+        return _change(() async {
+          var index = await _load();
+          var entries = _entries(index);
+          var at = entries.indexWhere(
+            (entry) => entry.id == found.id && !entry.compressed,
+          );
+          if (at < 0) {
+            return null;
+          }
+          var old = entries[at];
+          var entry = MidiSoundFontEntry(
+            id: old.id,
+            name: old.name,
+            size: bytes.length,
+            presetCount: info.presetCount,
+            sha256: sha256.convert(bytes).toString(),
+            copyright: info.copyright,
+            author: info.author,
+            comments: info.comments,
+            url: old.url ?? url.toString(),
+            licence: old.licence ?? source.licence,
+            compressed: true,
+          );
+          await _file(old.id, compressed: true).writeAsBytes(bytes);
+          entries[at] = entry;
+          index['soundFonts'] = [for (var entry in entries) entry._toMap()];
+          await _save(index);
+          var sf2 = _file(old.id);
+          if (await sf2.exists()) {
+            await sf2.delete();
+          }
+          return entry;
+        });
+      },
+    );
+  }
+
+  /// The SF2 file left by a [replaceUnpacked] stopped once its SF3 was
+  /// kept: deleted.
+  Future<void> _deleteReplaced(MidiSoundFontSource source) => _change(() async {
+    for (var entry in await list()) {
+      if (entry.compressed && entry.sha256 == source.sha256) {
+        var sf2 = _file(entry.id);
+        if (await sf2.exists()) {
+          await sf2.delete();
+        }
+      }
+    }
+  });
+
+  /// Downloads [source] from its locations in order, each checked, then
+  /// [keep]s it: a location that fails (or whose file [keep] refuses, a
+  /// [MidiSoundFontWorkerException] apart) goes on with the next one.
+  Future<T> _downloadWith<T>(
+    MidiSoundFontSource source, {
+    required Future<T> Function(Uint8List bytes, Uri url) keep,
+    void Function(int received, int? total)? onProgress,
+    MidiSoundFontDownloadCancel? cancel,
+    Uri? soundServer,
+    required Duration idleTimeout,
   }) async {
     var client = _client ?? http.Client();
     var attempts = <MidiSoundFontDownloadAttempt>[];
@@ -533,23 +668,9 @@ class MidiSoundFontLibrary {
           attempts.add(MidiSoundFontDownloadAttempt(url, problem));
           continue;
         }
-        MidiSoundFontEntry entry;
+        T kept;
         try {
-          String? originalSha256;
-          var compressed = midiSoundFontIsCompressed(bytes);
-          if (compressed && !keepCompressed) {
-            originalSha256 = sha256.convert(bytes).toString();
-            bytes = await _decompress(bytes, onProgress: onUnpack);
-          }
-          entry = await _add(
-            bytes,
-            id: source.id,
-            name: source.name,
-            source: source,
-            url: url,
-            originalSha256: originalSha256,
-            compressed: compressed && keepCompressed,
-          );
+          kept = await keep(bytes, url);
         } on MidiSoundFontWorkerException {
           // The worker failed (out of memory?), not the file: kept, the
           // next try decodes it again without downloading it.
@@ -561,7 +682,7 @@ class MidiSoundFontLibrary {
           continue;
         }
         await deletePart(source.id);
-        return entry;
+        return kept;
       }
     } finally {
       if (_client == null) {
