@@ -39,9 +39,11 @@ abstract final class MidiHostCommands {
   static const transpose = 'transpose';
 
   /// Sets the gain and pan of the tracks (`tracks`: a list of
-  /// `[gain, pan]`, or `[gain, pan, reverb]` with the send of the track to
-  /// the shared reverb, 0 to 1), and the level of the reverb in the mix
-  /// (`reverb`, 0 to 1, unchanged when missing).
+  /// `[gain, pan]`, `[gain, pan, reverb]` with the send of the track to
+  /// the shared reverb, 0 to 1, or `[gain, pan, reverb, chorus]` with its
+  /// send to the shared chorus too), and the levels of the reverb and the
+  /// chorus in the mix (`reverb`, `chorus`, 0 to 1, unchanged when
+  /// missing).
   static const mix = 'mix';
 
   /// Sets the tuning of the melodic channels (`value`, in cents, -100 to

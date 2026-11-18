@@ -13,8 +13,9 @@ import 'timeline.dart';
 /// its end plus [tail] seconds (the last releases), mixed by [mixer] (each
 /// track at full volume in the middle by default). The engine's speed and
 /// transposition apply, its tuning and speed trainer too; a loop set on it
-/// plays until the length is filled. The tracks sending to the reverb
-/// ([MidiTrackMix.reverb]) are mixed with the shared reverb of the hosts.
+/// plays until the length is filled. The tracks sending to the reverb or
+/// the chorus ([MidiTrackMix.reverb], [MidiTrackMix.chorus]) are mixed with
+/// the shared effects of the hosts.
 Float32List midiRenderOffline(
   MidiEngine engine,
   MidiTimeline timeline, {
@@ -26,16 +27,18 @@ Float32List midiRenderOffline(
   engine.load(timeline);
   var total = ((timeline.duration / engine.speed + tail) * sampleRate).ceil();
   var out = Float32List(total * 2);
-  if (mixer.hasReverb) {
-    // The mixdown of the hosts, with its shared reverb.
+  if (mixer.hasEffects) {
+    // The mixdown of the hosts, with its shared effects.
     var mixdown = MidiStereoMixdown(sampleRate: sampleRate)
-      ..reverbLevel = mixer.reverbLevel;
+      ..reverbLevel = mixer.reverbLevel
+      ..chorusLevel = mixer.chorusLevel;
     for (var track = 0; track < engine.synths.length; track++) {
       mixdown.setTrack(
         track,
         gain: mixer.gainOf(track),
         pan: mixer.panOf(track),
         reverb: mixer.reverbOf(track),
+        chorus: mixer.chorusOf(track),
       );
     }
     var left = Float32List(4096);

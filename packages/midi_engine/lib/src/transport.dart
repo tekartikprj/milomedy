@@ -90,6 +90,18 @@ abstract interface class MidiTransport {
   /// Sets the level of the shared reverb.
   set reverbLevel(double level);
 
+  /// Sets the send of [track] to the shared chorus, 0 (none, the default)
+  /// to 1, after its volume and pan. The app sets it (from the CC 93 of the
+  /// file with `midiChorusSends`, or a control of its own), as the reverb.
+  void setChorus(int track, double send);
+
+  /// The level of the shared chorus in the mix, 0 to 1 (1 by default, as
+  /// the chorus of a SoundFont synth with its effects on).
+  double get chorusLevel;
+
+  /// Sets the level of the shared chorus.
+  set chorusLevel(double level);
+
   /// The speed trainer of the loop, null when none.
   MidiSpeedTrainer? get speedTrainer;
 

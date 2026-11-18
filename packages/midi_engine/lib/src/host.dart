@@ -201,11 +201,16 @@ class MidiEngineHost {
             gain: values[0].toDouble(),
             pan: values[1].toDouble(),
             reverb: values.length > 2 ? values[2].toDouble() : null,
+            chorus: values.length > 3 ? values[3].toDouble() : null,
           );
         }
         var reverb = command['reverb'] as num?;
         if (reverb != null) {
           _mixdown.reverbLevel = reverb.toDouble();
+        }
+        var chorus = command['chorus'] as num?;
+        if (chorus != null) {
+          _mixdown.chorusLevel = chorus.toDouble();
         }
       case MidiHostCommands.synth:
         var track = (command['track'] as num).toInt();
@@ -253,7 +258,7 @@ class MidiEngineHost {
     }
   }
 
-  /// Silences the synths and the reverb at once.
+  /// Silences the synths and the effects at once.
   void _silence() {
     engine.silence();
     _mixdown.silence();
@@ -324,8 +329,8 @@ class MidiEngineHost {
       }
       return;
     }
-    // The end, once the tail of the reverb is over too.
-    if (engine.ended && _mixdown.reverbIdle) {
+    // The end, once the tails of the effects are over too.
+    if (engine.ended && _mixdown.effectsIdle) {
       var timeline = engine.timeline!;
       _silence();
       engine.seek(timeline.start);

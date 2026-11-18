@@ -77,9 +77,10 @@ Common mistakes:
   - A speed trainer on the loop (`speedTrainer`): the speed takes a step at the
     frame where the loop starts again.
   - `replace` swaps the timeline in place (an edit).
-- **Mixer.** `MidiMixer` sets the volume, pan, mute, solo and reverb send of
-  each track, then a master gain and a limiter. One shared reverb (`MidiReverb`,
-  a Freeverb) mixes what the tracks send to it. The pan behaves like a Web Audio
+- **Mixer.** `MidiMixer` sets the volume, pan, mute, solo, reverb and chorus
+  sends of each track, then a master gain and a limiter. One shared reverb
+  (`MidiReverb`, a Freeverb) and one shared chorus (`MidiChorus`) mix what the
+  tracks send to them. The pan behaves like a Web Audio
   StereoPannerNode, so every output sounds the same.
 - **Player.** `MidiPlayer` keeps an output fed a little ahead of its clock and
   reports the song position.
@@ -138,7 +139,7 @@ Common mistakes:
     and channel, and an instrument override per channel. Swap the result in
     with `MidiPlayer.replace` to hear it at once.
 
-## Reverb, tune, meters and speed trainer
+## Reverb, chorus, tune, meters and speed trainer
 
 Added on 2026-11-17, for an app with a mixer per channel. Every player has them
 (`MidiTransport`); nothing changes until they are used.
@@ -157,6 +158,14 @@ for (var (track, send) in sends.indexed) {
   player.setReverb(track, send);
 }
 player.reverbLevel = 1; // the master level, 1 by default
+
+// The shared chorus, the same way: CC 93 read by midiChorusSends (0 when
+// none, as General MIDI synths).
+for (var (track, send)
+    in midiChorusSends(timeline, trackCount: 16).indexed) {
+  player.setChorus(track, send);
+}
+player.chorusLevel = 1;
 
 // A4 at 442 Hz: about +7.85 cents, the percussion channel stays as it is.
 player.tuneCents = 7.85;
@@ -183,6 +192,13 @@ player.onMeters.listen((meters) {
   `MidiWebAudioSink` plays dry. The bus costs nothing while nothing is sent to
   it and its tail is over. A pause or a stop cuts the tail, the end of a song
   waits for it.
+- **Chorus.** `MidiChorus` is the chorus of dart_melty_soundfont, ported with
+  its credit: a delay of 2 ms swept by 1.9 ms at 0.4 Hz, the right side a
+  quarter of a period after the left. A track sends to it after its volume
+  and its pan (`setChorus`, 0 to 1, 0 by default), as melty feeds it.
+  `MidiStereoMixdown`, `MidiStreamSink` and `midiRenderOffline` mix it,
+  `MidiWebAudioSink` plays dry. The host protocol takes
+  `[gain, pan, reverb, chorus]` per track and a `chorus` level.
 - **Tune.** The engine sends RPN 1 (CC 101 = 0, CC 100 = 1, CC 6 and CC 38,
   8192 + cents × 8192 / 100) to each melodic channel of the timeline, then
   selects again the RPN the timeline had selected. It does so after each seek

@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
+import 'chorus.dart';
 import 'engine.dart';
 import 'mixer.dart';
 import 'reverb.dart';
@@ -37,7 +38,7 @@ class _Queued {
   int get end => start + block.frames;
 }
 
-/// The mix of a track: its gain (and its reverb send) moves to [target]
+/// The mix of a track: its gain (and its effect sends) moves to [target]
 /// over a chunk.
 class _TrackMix {
   double gain;
@@ -45,13 +46,15 @@ class _TrackMix {
   double pan;
   var reverb = 0.0;
   var reverbTarget = 0.0;
+  var chorus = 0.0;
+  var chorusTarget = 0.0;
 
   _TrackMix(this.gain, this.pan) : target = gain;
 }
 
 /// An output on a raw stream: its clock is a stopwatch (the stream plays in
 /// real time), the frames pushed run [latency] ahead of it.
-class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
+class MidiStreamSink implements MidiAudioSink, MidiReverbSink, MidiChorusSink {
   /// The stream.
   final MidiPcmStream stream;
 
@@ -87,6 +90,8 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
   final MidiLimiter _limiter;
   MidiReverbBus? _reverb;
   var _reverbLevel = 1.0;
+  MidiChorusBus? _chorus;
+  var _chorusLevel = 1.0;
   Timer? _timer;
   var _feedPending = false;
 
@@ -187,6 +192,24 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
     _reverb?.level = level;
   }
 
+  @override
+  void setTrackChorus(int track, double send) {
+    var isNew = track >= _tracks.length;
+    var mix = _track(track)..chorusTarget = send;
+    if (isNew) {
+      mix.chorus = send;
+    }
+    if (send > 0) {
+      _chorus ??= MidiChorusBus(sampleRate: sampleRate)..level = _chorusLevel;
+    }
+  }
+
+  @override
+  set chorusLevel(double level) {
+    _chorusLevel = level;
+    _chorus?.level = level;
+  }
+
   /// Pushes the frames up to [latency] ahead of the clock (called every
   /// 10 ms while there is something to play).
   void feed() {
@@ -234,6 +257,8 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
     var reverb = _reverb;
     Float32List? sends;
     var fed = false;
+    var chorus = _chorus;
+    var chorusFed = false;
     for (var track = 0; track < trackCount; track++) {
       var mix = _track(track);
       var from = mix.gain;
@@ -242,6 +267,9 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
       var sendFrom = mix.reverb * from;
       var sendTo = mix.reverbTarget * to;
       mix.reverb = mix.reverbTarget;
+      var chorusFrom = mix.chorus * from;
+      var chorusTo = mix.chorusTarget * to;
+      mix.chorus = mix.chorusTarget;
       if (from == 0 && to == 0) {
         continue;
       }
@@ -253,6 +281,16 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
           sends = reverb.input(frames);
         }
         input = sends;
+      }
+      Float32List? chorusLeft;
+      Float32List? chorusRight;
+      if (chorus != null && (chorusFrom > 0 || chorusTo > 0)) {
+        if (!chorusFed) {
+          chorusFed = true;
+          chorus.input(frames);
+        }
+        chorusLeft = chorus.inputLeft;
+        chorusRight = chorus.inputRight;
       }
       for (var queued in _queue) {
         var block = queued.block;
@@ -278,6 +316,16 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
                 (sendFrom + (sendTo - sendFrom) * i / frames) *
                 midiMasterGain;
           }
+          if (chorusLeft != null && chorusRight != null) {
+            // The track panned, times its send.
+            var send =
+                (chorusFrom + (chorusTo - chorusFrom) * i / frames) *
+                midiMasterGain;
+            var a = left[frame - queued.start] * send;
+            var b = right[frame - queued.start] * send;
+            chorusLeft[i] += a * pan.leftToLeft + b * pan.rightToLeft;
+            chorusRight[i] += a * pan.leftToRight + b * pan.rightToRight;
+          }
         }
       }
     }
@@ -285,6 +333,15 @@ class MidiStreamSink implements MidiAudioSink, MidiReverbSink {
       var level = reverb.level;
       var wetLeft = reverb.left;
       var wetRight = reverb.right;
+      for (var i = 0; i < frames; i++) {
+        out[2 * i] += wetLeft[i] * level;
+        out[2 * i + 1] += wetRight[i] * level;
+      }
+    }
+    if (chorus != null && chorus.process(frames, fed: chorusFed)) {
+      var level = chorus.level;
+      var wetLeft = chorus.left;
+      var wetRight = chorus.right;
       for (var i = 0; i < frames; i++) {
         out[2 * i] += wetLeft[i] * level;
         out[2 * i + 1] += wetRight[i] * level;

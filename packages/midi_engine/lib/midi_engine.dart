@@ -1,6 +1,6 @@
 /// MIDI engine, pure Dart: the timeline, the engine that plays it on the
 /// audio clock (with its tuning and the speed trainer of a loop), the mixer
-/// and its shared reverb, the player and its outputs (silent, on a raw
+/// and its shared reverb and chorus, the player and its outputs (silent, on a raw
 /// audio stream), the engine host, its messages and the meters of its
 /// tracks, offline rendering, WAV files, a metronome, and the song of a
 /// MIDI file with its tempo map.
@@ -10,6 +10,7 @@
 /// On io: the isolate player is in `isolate_player.dart`.
 library;
 
+export 'src/chorus.dart';
 export 'src/engine.dart';
 export 'src/host.dart';
 export 'src/host_player.dart';

@@ -129,11 +129,16 @@ class MidiPlayer implements MidiTransport {
   }
 
   /// Sends the mix of every track to the output (after changing [mixer]
-  /// directly): the reverb too when the output mixes it (a
-  /// [MidiReverbSink], as `MidiStreamSink`; the others play dry).
+  /// directly): the reverb and the chorus too when the output mixes them (a
+  /// [MidiReverbSink], a [MidiChorusSink], as `MidiStreamSink`; the others
+  /// play dry).
   void applyMix() {
     var reverb = switch (sink) {
       MidiReverbSink sink => sink,
+      _ => null,
+    };
+    var chorus = switch (sink) {
+      MidiChorusSink sink => sink,
       _ => null,
     };
     for (var track = 0; track < mixer.tracks.length; track++) {
@@ -143,8 +148,28 @@ class MidiPlayer implements MidiTransport {
         pan: mixer.panOf(track),
       );
       reverb?.setTrackReverb(track, mixer.reverbOf(track));
+      chorus?.setTrackChorus(track, mixer.chorusOf(track));
     }
     reverb?.reverbLevel = mixer.reverbLevel;
+    chorus?.chorusLevel = mixer.chorusLevel;
+  }
+
+  /// Sets the send of [track] to the shared chorus, 0 to 1: heard when the
+  /// output mixes the chorus ([MidiChorusSink]).
+  @override
+  void setChorus(int track, double send) {
+    mixer.tracks[track].chorus = send;
+    applyMix();
+  }
+
+  /// The level of the shared chorus, 0 to 1.
+  @override
+  double get chorusLevel => mixer.chorusLevel;
+
+  @override
+  set chorusLevel(double level) {
+    mixer.chorusLevel = level;
+    applyMix();
   }
 
   /// Sets the send of [track] to the shared reverb, 0 to 1: heard when the

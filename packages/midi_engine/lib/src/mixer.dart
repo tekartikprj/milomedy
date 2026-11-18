@@ -8,6 +8,7 @@ import 'dart:typed_data';
 
 import 'package:milomedy_midi_synth/midi_synth.dart';
 
+import 'chorus.dart';
 import 'engine.dart';
 import 'reverb.dart';
 import 'timeline.dart';
@@ -36,6 +37,10 @@ class MidiTrackMix {
   /// volume, so a muted track sends nothing.
   double reverb;
 
+  /// The send to the shared chorus, 0 (none, the default) to 1: after the
+  /// volume and the pan.
+  double chorus;
+
   /// A mix.
   MidiTrackMix({
     this.volume = 1,
@@ -43,6 +48,7 @@ class MidiTrackMix {
     this.mute = false,
     this.solo = false,
     this.reverb = 0,
+    this.chorus = 0,
   });
 }
 
@@ -69,6 +75,21 @@ class MidiMixer {
 
   /// True when a track sends to the reverb.
   bool get hasReverb => tracks.any((track) => track.reverb > 0);
+
+  /// The level of the shared chorus in the mix, 0 to 1 (1 by default: as
+  /// the chorus of a SoundFont synth with its effects on). Heard only when
+  /// a track sends to it ([MidiTrackMix.chorus]).
+  var chorusLevel = 1.0;
+
+  /// The send of [track] to the shared chorus, 0 when none.
+  double chorusOf(int track) =>
+      track < tracks.length ? tracks[track].chorus : 0;
+
+  /// True when a track sends to the chorus.
+  bool get hasChorus => tracks.any((track) => track.chorus > 0);
+
+  /// True when a track sends to an effect (the reverb, the chorus).
+  bool get hasEffects => hasReverb || hasChorus;
 
   /// The gain of [track]: its volume, 0 when muted or when other tracks are
   /// soloed.
@@ -187,14 +208,16 @@ class MidiLimiter {
   }
 }
 
-/// The mix of a track in a [MidiStereoMixdown]: its gain and its reverb
-/// send move to their target over a block.
+/// The mix of a track in a [MidiStereoMixdown]: its gain and its sends to
+/// the reverb and the chorus move to their target over a block.
 class _MixdownTrack {
   double gain;
   double target;
   double pan;
   var reverb = 0.0;
   var reverbTarget = 0.0;
+  var chorus = 0.0;
+  var chorusTarget = 0.0;
 
   /// The peak since the last [MidiStereoMixdown.takePeaks].
   var peak = 0.0;
@@ -204,14 +227,16 @@ class _MixdownTrack {
 
 /// Mixes rendered blocks down to stereo as they are played: a gain per track
 /// moved to its new value over a block (no click), a pan, a send to the
-/// shared reverb, the master gain and the limiter. It keeps the peak of
-/// each track (the meters).
+/// shared reverb and one to the shared chorus, the master gain and the
+/// limiter. It keeps the peak of each track (the meters).
 class MidiStereoMixdown {
   final _tracks = <_MixdownTrack>[];
   final MidiLimiter _limiter;
   final int _sampleRate;
   MidiReverbBus? _reverb;
   var _reverbLevel = 1.0;
+  MidiChorusBus? _chorus;
+  var _chorusLevel = 1.0;
 
   /// A mixdown at [sampleRate].
   MidiStereoMixdown({required int sampleRate})
@@ -226,13 +251,14 @@ class MidiStereoMixdown {
   }
 
   /// The [gain] and the [pan] of [track], heard from the next block (the
-  /// first time: at once), and its send to the shared reverb, 0 to 1
-  /// (unchanged when null, none at first).
+  /// first time: at once), and its sends to the shared [reverb] and
+  /// [chorus], 0 to 1 (unchanged when null, none at first).
   void setTrack(
     int track, {
     required double gain,
     required double pan,
     double? reverb,
+    double? chorus,
   }) {
     var isNew = track >= _tracks.length;
     var mix = _track(track)
@@ -251,6 +277,16 @@ class MidiStereoMixdown {
           ..level = _reverbLevel;
       }
     }
+    if (chorus != null) {
+      mix.chorusTarget = chorus;
+      if (isNew) {
+        mix.chorus = chorus;
+      }
+      if (chorus > 0) {
+        _chorus ??= MidiChorusBus(sampleRate: _sampleRate)
+          ..level = _chorusLevel;
+      }
+    }
   }
 
   /// The level of the shared reverb in the mix, 0 to 1 (1 by default).
@@ -265,8 +301,24 @@ class MidiStereoMixdown {
   /// silence), its tail over.
   bool get reverbIdle => _reverb?.idle ?? true;
 
-  /// Silences the tail of the reverb at once (a pause, a stop).
-  void silence() => _reverb?.mute();
+  /// The level of the shared chorus in the mix, 0 to 1 (1 by default).
+  double get chorusLevel => _chorusLevel;
+
+  set chorusLevel(double level) {
+    _chorusLevel = level;
+    _chorus?.level = level;
+  }
+
+  /// True when the effects are silent (the reverb and the chorus): nothing
+  /// sent to them, their tails over.
+  bool get effectsIdle => reverbIdle && (_chorus?.idle ?? true);
+
+  /// Silences the tails of the reverb and the chorus at once (a pause, a
+  /// stop).
+  void silence() {
+    _reverb?.mute();
+    _chorus?.mute();
+  }
 
   /// The peak level of each of the [trackCount] tracks since the last call
   /// (after their gain, before the pan, the master gain and the limiter),
@@ -291,6 +343,8 @@ class MidiStereoMixdown {
     var reverb = _reverb;
     Float32List? sends;
     var fed = false;
+    var chorus = _chorus;
+    var chorusFed = false;
     for (var track = 0; track < block.trackCount; track++) {
       var mix = _track(track);
       var from = mix.gain;
@@ -299,8 +353,30 @@ class MidiStereoMixdown {
       var sendFrom = mix.reverb * from;
       var sendTo = mix.reverbTarget * to;
       mix.reverb = mix.reverbTarget;
+      var chorusFrom = mix.chorus * from;
+      var chorusTo = mix.chorusTarget * to;
+      mix.chorus = mix.chorusTarget;
       if (from == 0 && to == 0) {
         continue;
+      }
+      if (chorus != null && (chorusFrom > 0 || chorusTo > 0)) {
+        // The track panned, times its send, into the chorus.
+        var (inputLeft, inputRight) = chorusFed
+            ? (chorus.inputLeft, chorus.inputRight)
+            : chorus.input(frames);
+        chorusFed = true;
+        var pan = midiStereoPan(mix.pan);
+        var trackLeft = block.left[track];
+        var trackRight = block.right[track];
+        var start = chorusFrom * midiMasterGain;
+        var step = (chorusTo - chorusFrom) / frames * midiMasterGain;
+        for (var i = 0; i < frames; i++) {
+          var send = start + step * i;
+          var l = trackLeft[i] * send;
+          var r = trackRight[i] * send;
+          inputLeft[i] += l * pan.leftToLeft + r * pan.rightToLeft;
+          inputRight[i] += l * pan.leftToRight + r * pan.rightToRight;
+        }
       }
       var pan = midiStereoPan(mix.pan);
       var trackLeft = block.left[track];
@@ -376,6 +452,15 @@ class MidiStereoMixdown {
         right[i] += wetRight[i] * level;
       }
     }
+    if (chorus != null && chorus.process(frames, fed: chorusFed)) {
+      var level = chorus.level;
+      var wetLeft = chorus.left;
+      var wetRight = chorus.right;
+      for (var i = 0; i < frames; i++) {
+        left[i] += wetLeft[i] * level;
+        right[i] += wetRight[i] * level;
+      }
+    }
     _limiter.processStereo(left, right);
   }
 }
@@ -393,6 +478,38 @@ List<double> midiReverbSends(
   MidiTimeline timeline, {
   required int trackCount,
   double missing = midiDefaultReverbSend,
+}) => _controllerSends(
+  timeline,
+  controller: midiControllerReverb,
+  trackCount: trackCount,
+  missing: missing,
+);
+
+/// The default chorus send of General MIDI synths (CC 93 at 0, as
+/// dart_melty_soundfont).
+const midiDefaultChorusSend = 0.0;
+
+/// The send to the shared chorus of each of the [trackCount] tracks of
+/// [timeline], from its chorus controller (CC 93, 0 to 127), as
+/// [midiReverbSends]: [missing] ([midiDefaultChorusSend], none, by default)
+/// when it sets none. For `setChorus`: the engine does not follow CC 93
+/// itself.
+List<double> midiChorusSends(
+  MidiTimeline timeline, {
+  required int trackCount,
+  double missing = midiDefaultChorusSend,
+}) => _controllerSends(
+  timeline,
+  controller: midiControllerChorus,
+  trackCount: trackCount,
+  missing: missing,
+);
+
+List<double> _controllerSends(
+  MidiTimeline timeline, {
+  required int controller,
+  required int trackCount,
+  required double missing,
 }) {
   var firstNotes = List<double?>.filled(trackCount, null);
   for (var note in timeline.notes) {
@@ -410,7 +527,7 @@ List<double> midiReverbSends(
     var track = message.track;
     if (track >= trackCount ||
         message.status & 0xf0 != midiControlChange ||
-        message.data1 != midiControllerReverb) {
+        message.data1 != controller) {
       continue;
     }
     firstSet[track] ??= message.data2;

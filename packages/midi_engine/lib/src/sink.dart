@@ -44,9 +44,20 @@ abstract interface class MidiReverbSink {
   set reverbLevel(double level);
 }
 
+/// An output that also mixes the shared chorus of the tracks (in Dart):
+/// `MidiPlayer` sends it the chorus of its mixer. The others play dry.
+abstract interface class MidiChorusSink {
+  /// The send of [track] to the shared chorus, 0 to 1, heard at once when
+  /// the output can.
+  void setTrackChorus(int track, double send);
+
+  /// Sets the level of the shared chorus in the mix, 0 to 1.
+  set chorusLevel(double level);
+}
+
 /// An output with no sound: its clock is a stopwatch (the tests, the
 /// platforms without an output yet); it keeps the blocks when asked.
-class MidiSilentSink implements MidiAudioSink, MidiReverbSink {
+class MidiSilentSink implements MidiAudioSink, MidiReverbSink, MidiChorusSink {
   @override
   final int sampleRate;
 
@@ -67,6 +78,13 @@ class MidiSilentSink implements MidiAudioSink, MidiReverbSink {
   /// The level of the shared reverb set.
   @override
   var reverbLevel = 1.0;
+
+  /// The chorus send of each track set.
+  final Map<int, double> choruses = {};
+
+  /// The level of the shared chorus set.
+  @override
+  var chorusLevel = 1.0;
 
   /// Keeps the blocks scheduled.
   final bool keep;
@@ -106,6 +124,11 @@ class MidiSilentSink implements MidiAudioSink, MidiReverbSink {
   @override
   void setTrackReverb(int track, double send) {
     reverbs[track] = send;
+  }
+
+  @override
+  void setTrackChorus(int track, double send) {
+    choruses[track] = send;
   }
 
   @override

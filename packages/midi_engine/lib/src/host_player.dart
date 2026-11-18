@@ -258,10 +258,31 @@ abstract class MidiHostPlayer implements MidiTransport {
       'type': MidiHostCommands.mix,
       'tracks': [
         for (var track = 0; track < mixer.tracks.length; track++)
-          [mixer.gainOf(track), mixer.panOf(track), mixer.reverbOf(track)],
+          [
+            mixer.gainOf(track),
+            mixer.panOf(track),
+            mixer.reverbOf(track),
+            mixer.chorusOf(track),
+          ],
       ],
       'reverb': mixer.reverbLevel,
+      'chorus': mixer.chorusLevel,
     });
+  }
+
+  @override
+  void setChorus(int track, double send) {
+    mixer.tracks[track].chorus = send;
+    _sendMix();
+  }
+
+  @override
+  double get chorusLevel => mixer.chorusLevel;
+
+  @override
+  set chorusLevel(double level) {
+    mixer.chorusLevel = level;
+    _sendMix();
   }
 
   @override

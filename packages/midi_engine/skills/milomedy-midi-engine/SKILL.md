@@ -9,7 +9,7 @@ description: >-
   MidiSilentSink), MidiWorkletPlayer (web AudioWorklet, setup_web_worklet),
   MidiIsolatePlayer (io), MidiHostPlayer and MidiSynthSpec, the mixer
   (volume, pan, mute, solo, setReverb and the shared MidiReverb,
-  midiReverbSends), the tuning (tuneCents, RPN 1), the speed trainer of a
+  midiReverbSends, setChorus and the shared MidiChorus, midiChorusSends), the tuning (tuneCents, RPN 1), the speed trainer of a
   loop (setSpeedTrainer, MidiSpeedTrainer, onSpeed), the meters of the
   tracks (trackLevels, soundingKeys, onMeters, MidiTrackMeters),
   midiRenderOffline and midiWavBytes, the
@@ -92,6 +92,10 @@ timeline.
   times slower. The engine does not follow CC 91: set the sends from
   `midiReverbSends(timeline, trackCount: 16)` (40 / 127 when the file has
   none). A pause cuts the tail; the end waits for it.
+* Shared chorus, the same way: `player.setChorus(track, send)` (after the
+  volume and the pan) and `player.chorusLevel`; `MidiChorus` is melty's
+  chorus (2 ms swept by 1.9 ms at 0.4 Hz). Set the sends from
+  `midiChorusSends(timeline, trackCount: 16)` (CC 93, 0 when none).
 * Tune: `player.tuneCents = 7.85` (A4 at 442 Hz; -100 to 100, an
   `ArgumentError` otherwise). RPN 1 to every melodic channel of the timeline
   (never the percussion channel), sent again after each seek and loop pass
