@@ -80,6 +80,8 @@ my_font.sf2`).
 - **A built-in fallback**, id `tiny` (the tiny SoundFont of
   milomedy_midi_synth_sf2: a sine, a noise), always there and the default
   until another is set: something plays offline, with no licence question.
+- **Played per song**: an SF3 kept as it is (`keepCompressed`), each song
+  given a SoundFont of its samples only (`MidiSoundFontSampler`, see below).
 
 ## GeneralUser GS
 
@@ -159,6 +161,62 @@ it again.
 
 GeneralUser GS in Chrome (dart2js): 6.2 s in the worker, the page never
 waiting more than 15 ms; 8.2 s in the page, with pauses of 66 ms.
+
+## Played per song: the SF3 kept, its samples decoded when needed
+
+A song plays 2 to 10 % of a General MIDI bank. With `keepCompressed: true`
+the library keeps an SF3 as it is (9 MB on the device for GeneralUser GS
+instead of 32, nothing unpacked): its entry is `compressed`, `read` gives the
+SF3, `presets(id)` reads its presets without decoding it. A
+`MidiSoundFontSampler` then makes the SoundFont of each song: the whole
+definition and only the samples the song plays, decoded when first needed.
+
+```dart
+var library = MidiSoundFontLibrary(
+  fileSystem: fileSystemDefault,
+  path: 'sound_fonts',
+  keepCompressed: true,
+);
+// For the session: on the web in a web worker of its own (the SF3 moved
+// to it), on io here.
+var sampler = await midiSoundFontSampler(await library.read(id));
+// The samples of the song, for every transposition up to 12 semitones.
+var samples = sampler.samplesOf(song.toTimeline(), margin: 12);
+await player.loadSoundFont('gm', await sampler.soundFont(samples),
+    transfer: true);
+```
+
+- `MidiSoundFontDefinition` reads an SF2 or an SF3 without its sample data:
+  INFO, presets, instruments and zones, sample headers. `samplesFor(notes)`
+  finds the samples notes play the way the synth (dart_melty_soundfont)
+  does: the preset of the bank and program, else the same program in bank 0
+  (the kit 128:0 for drums), else the lowest; then the zones holding the key
+  and velocity. Checked against the synth's own lookup on every note of the
+  28 example songs with GeneralUser GS, and on 21 000 notes of a test font.
+- `midiSoundFontNotes(timeline, transpose:)`: the bank, program, key and
+  velocity of each note as the synth gets it (the messages at an instant
+  before its notes, bank 128 on the percussion channel, the drums never
+  transposed).
+- `soundFont(samples)` returns an SF2 in its own buffer (for
+  `transfer: true`): the samples given packed, every other one pointing to a
+  short silence placed so that the address offsets of the zones stay within
+  the data (the synth refuses a SoundFont otherwise). Played, it sounds as
+  the whole SoundFont for the notes of those samples (within a float32
+  rounding). The samples decoded are kept, the least recently used dropped
+  beyond `cacheBytes` (8 MB by default).
+- On the web the worker is `sound_font_worker.js` (protocol 2: the sampler
+  messages; 139 KB), the same script as the decompressor. Missing, the
+  sampler runs in the page (a console warning). A worker that dies makes the
+  next calls throw a `MidiSoundFontWorkerException`: make another sampler.
+  With dart2wasm the SF3 is copied out of the wasm memory and the copy moved.
+
+GeneralUser GS and the 28 example songs (`dart run tool/song_samples.dart
+<soundfont> <songs>...`, VM): a song plays 11 to 68 samples (median 21),
+0.7 to 3 MB of frames; its SoundFont is 1.3 to 3.6 MB (median 2.1) instead
+of 31; made in 0 to 0.4 s (median 0.12 s, the samples of the song before
+kept). A margin of 12 semitones each way takes 15 to 83 samples (median
+30). In the app in Chrome, the page heap peaked at 38 MB during the download
+(no unpacking) and at 47 MB opening a song.
 
 ## Good to know
 

@@ -11,7 +11,9 @@ import 'src/sf3.dart';
 import 'src/source.dart';
 
 export 'src/catalog.dart';
+export 'src/definition.dart';
 export 'src/library.dart';
+export 'src/sampler.dart';
 export 'src/sf3.dart';
 export 'src/source.dart';
 export 'src/tiny_sf3.dart';

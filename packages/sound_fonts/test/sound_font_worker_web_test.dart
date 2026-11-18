@@ -86,4 +86,66 @@ void main() {
       throwsA(isA<MidiSoundFontWorkerException>()),
     );
   });
+
+  group('sampler', () {
+    test('in the worker: the SoundFont of the samples asked', () async {
+      if (!await built()) {
+        return;
+      }
+      var bytes = Uint8List.fromList(sf3);
+      var sampler = await midiSoundFontSampler(
+        bytes,
+        url: _url,
+        fallback: false,
+      );
+      // Moved to the worker: nothing left here but the definition (with
+      // dart2wasm, toJS copies them out of the wasm memory: the copy moves).
+      if (!const bool.fromEnvironment('dart.tool.dart2wasm')) {
+        expect(bytes, isEmpty);
+      }
+      expect(sampler.definition.name, 'Tiny test SoundFont');
+      var local = MidiSoundFontLocalSampler(sf3);
+      // Two requests at once, then one with a sample decoded before.
+      var both = sampler.soundFont([0, 1]);
+      var sine = sampler.soundFont([0]);
+      expect(await both, await local.soundFont([0, 1]));
+      expect(await sine, await local.soundFont([0]));
+      expect(await sampler.soundFont([1]), await local.soundFont([1]));
+      // A sample that is not there: the error, then it goes on.
+      await expectLater(
+        sampler.soundFont([5]),
+        throwsA(isA<MidiSoundFontWorkerException>()),
+      );
+      expect(await sampler.soundFont(const []), await local.soundFont([]));
+      await sampler.close();
+      await expectLater(sampler.soundFont([0]), throwsStateError);
+    });
+
+    test('no worker: in the page, or refused', () async {
+      var sampler = await midiSoundFontSampler(
+        Uint8List.fromList(sf3),
+        url: 'missing_worker.js',
+      );
+      expect(sampler, isA<MidiSoundFontLocalSampler>());
+      expect(
+        await sampler.soundFont([0]),
+        await MidiSoundFontLocalSampler(sf3).soundFont([0]),
+      );
+      await expectLater(
+        midiSoundFontSampler(
+          Uint8List.fromList(sf3),
+          url: 'missing_worker.js',
+          fallback: false,
+        ),
+        throwsA(isA<MidiSoundFontWorkerException>()),
+      );
+    });
+
+    test('not a SoundFont: a FormatException, no worker', () async {
+      await expectLater(
+        midiSoundFontSampler(Uint8List(64), url: _url),
+        throwsFormatException,
+      );
+    });
+  });
 }

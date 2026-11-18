@@ -215,6 +215,109 @@ void main() {
     });
   });
 
+  group('library, keepCompressed', () {
+    MidiSoundFontLibrary keeping({http.Client? client}) => MidiSoundFontLibrary(
+      fileSystem: newFileSystemMemory(),
+      path: 'sf',
+      client: client,
+      keepCompressed: true,
+      decompress: (bytes, {onProgress}) =>
+          throw StateError('an SF3 kept is not decompressed'),
+    );
+
+    test('import: kept as SF3, once; its presets', () async {
+      var library = keeping();
+      var bytes = tinySf3();
+      var entry = await library.import(bytes);
+      expect(entry.compressed, isTrue);
+      expect(entry.id, 'tiny_test_soundfont');
+      expect(entry.name, 'Tiny test SoundFont');
+      expect(entry.sha256, sha256.convert(bytes).toString());
+      expect(entry.originalSha256, isNull);
+      expect((entry.size, entry.presetCount), (bytes.length, 2));
+      expect(await library.read(entry.id), bytes);
+      expect(
+        [for (var p in await library.presets(entry.id)) (p.bank, p.program)],
+        [(0, 0), (128, 0)],
+      );
+      // Again: the entry there.
+      expect((await library.import(bytes)).id, entry.id);
+      expect(await library.list(), hasLength(2));
+      // Read back from the index.
+      var entries = await MidiSoundFontLibrary(
+        fileSystem: library.fileSystem,
+        path: 'sf',
+      ).list();
+      expect(entries.last.compressed, isTrue);
+      // An SF2 stays an SF2.
+      var sf2Entry = await library.import(sf2);
+      expect(sf2Entry.compressed, isFalse);
+      expect(await library.read(sf2Entry.id), sf2);
+      expect(
+        await library.presets(sf2Entry.id),
+        hasLength(MidiSoundFont.fromBytes(sf2).presets.length),
+      );
+      // Deleted: its file too.
+      await library.delete(entry.id);
+      expect(await library.entry(entry.id), isNull);
+      expect(
+        await library.fileSystem.file('sf/${entry.id}.sf3').exists(),
+        isFalse,
+      );
+    });
+
+    test('download: kept as SF3, found again', () async {
+      var bytes = tinySf3();
+      var url = Uri.parse('https://example.com/tiny.sf3');
+      var source = MidiSoundFontSource(
+        id: 'tiny_sf3',
+        name: 'Tiny SF3',
+        url: url,
+        licence: 'test',
+        size: bytes.length,
+        sha256: sha256.convert(bytes).toString(),
+        compressed: true,
+      );
+      var library = keeping(
+        client: MockClient(
+          (request) async => request.url == url
+              ? http.Response.bytes(bytes, 200)
+              : http.Response('', 404),
+        ),
+      );
+      var unpacked = 0;
+      var entry = await library.download(
+        source,
+        onUnpack: (done, total) => unpacked = done,
+      );
+      expect(unpacked, 0);
+      expect(entry.compressed, isTrue);
+      expect(entry.sha256, source.sha256);
+      expect(entry.licence, 'test');
+      expect(await library.read('tiny_sf3'), bytes);
+      expect(await library.partSize('tiny_sf3'), 0);
+      expect((await library.sameFile(source))?.id, 'tiny_sf3');
+      expect((await library.ensure(source)).id, 'tiny_sf3');
+    });
+
+    test('an SF3 unpacked before: found, not added again', () async {
+      var fileSystem = newFileSystemMemory();
+      var bytes = tinySf3();
+      var unpacked = await MidiSoundFontLibrary(
+        fileSystem: fileSystem,
+        path: 'sf',
+      ).import(bytes);
+      var library = MidiSoundFontLibrary(
+        fileSystem: fileSystem,
+        path: 'sf',
+        keepCompressed: true,
+      );
+      var entry = await library.import(bytes);
+      expect(entry.id, unpacked.id);
+      expect(entry.compressed, isFalse);
+    });
+  });
+
   group('catalog', () {
     var json = {
       'version': 1,

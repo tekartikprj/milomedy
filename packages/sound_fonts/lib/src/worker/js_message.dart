@@ -15,6 +15,9 @@ extension type MidiSoundFontWorkerJsMessage._(JSObject _) implements JSObject {
     int total,
     String error,
     bool format,
+    int id,
+    JSInt32Array samples,
+    int cacheBytes,
   });
 
   /// The message type.
@@ -23,7 +26,7 @@ extension type MidiSoundFontWorkerJsMessage._(JSObject _) implements JSObject {
   /// The protocol version (ready).
   external int? get version;
 
-  /// The SF3 (decompress) or the SF2 (result).
+  /// The SF3 (decompress), the SoundFont (open) or the SF2 (result).
   external JSUint8Array? get bytes;
 
   /// The samples done (progress).
@@ -37,6 +40,15 @@ extension type MidiSoundFontWorkerJsMessage._(JSObject _) implements JSObject {
 
   /// True when the file is not a valid SF3 (error).
   external bool? get format;
+
+  /// The request of a sampler (samples, its result or error).
+  external int? get id;
+
+  /// The samples asked (samples).
+  external JSInt32Array? get samples;
+
+  /// The frames kept decoded at most, in bytes (open).
+  external int? get cacheBytes;
 }
 
 /// The `buffer` of a JS typed array, for the transfer list of

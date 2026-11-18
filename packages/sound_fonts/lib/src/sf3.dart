@@ -20,165 +20,20 @@ import 'dart:typed_data';
 
 import 'package:milomedy_vorbis/vorbis.dart';
 
+import 'riff.dart';
+
 /// The flag of a compressed sample in the sample type of a sample header.
 const midiSampleTypeCompressed = 0x10;
-
-/// The flag of a ROM sample (not in the file).
-const _sampleTypeRom = 0x8000;
-
-/// The zero frames the SF2 format asks after each sample.
-const _guard = 46;
-
-/// The size of a sample header (`shdr`).
-const _headerSize = 46;
-
-/// A chunk of a RIFF file: its id and data, or, for a `LIST`, its type and
-/// chunks.
-class _Chunk {
-  final String id;
-  final Uint8List data;
-  final String? listType;
-  final List<_Chunk> chunks;
-
-  /// The size of the data of a reserved chunk, written in place later; null
-  /// for a chunk with its [data].
-  final int? reserved;
-
-  _Chunk(this.id, this.data)
-    : listType = null,
-      chunks = const [],
-      reserved = null;
-
-  /// A chunk of [size] bytes, zero, to fill in the bank written.
-  _Chunk.reserved(this.id, int size)
-    : listType = null,
-      chunks = const [],
-      data = Uint8List(0),
-      reserved = size;
-
-  _Chunk.list(String type, this.chunks)
-    : id = 'LIST',
-      listType = type,
-      data = Uint8List(0),
-      reserved = null;
-
-  int get _dataSize => reserved ?? data.length;
-
-  _Chunk? find(String id) {
-    for (var chunk in chunks) {
-      if (chunk.id == id || chunk.listType == id) {
-        return chunk;
-      }
-    }
-    return null;
-  }
-
-  int get size => listType == null
-      ? _dataSize
-      : 4 + chunks.fold(0, (size, chunk) => size + 8 + _even(chunk.size));
-}
-
-int _even(int size) => size + (size & 1);
-
-String _tag(Uint8List bytes, int at) =>
-    ascii.decode(bytes.sublist(at, at + 4), allowInvalid: true);
-
-/// The chunks of [bytes] from [start] to [end].
-List<_Chunk> _chunks(Uint8List bytes, int start, int end) {
-  var data = ByteData.sublistView(bytes);
-  var chunks = <_Chunk>[];
-  var at = start;
-  while (at + 8 <= end) {
-    var id = _tag(bytes, at);
-    var size = data.getUint32(at + 4, Endian.little);
-    var body = at + 8;
-    if (body + size > end) {
-      throw const FormatException('SoundFont: a chunk goes past its end');
-    }
-    if (id == 'LIST') {
-      chunks.add(
-        _Chunk.list(_tag(bytes, body), _chunks(bytes, body + 4, body + size)),
-      );
-    } else {
-      chunks.add(_Chunk(id, Uint8List.sublistView(bytes, body, body + size)));
-    }
-    at = body + _even(size);
-  }
-  return chunks;
-}
-
-/// The `sfbk` chunks of [bytes]: INFO, sdta, pdta.
-_Chunk _readBank(Uint8List bytes) {
-  if (bytes.length < 12 ||
-      _tag(bytes, 0) != 'RIFF' ||
-      _tag(bytes, 8) != 'sfbk') {
-    throw const FormatException('not a SoundFont (RIFF sfbk)');
-  }
-  var size = ByteData.sublistView(bytes).getUint32(4, Endian.little);
-  var end = (8 + size).clamp(12, bytes.length);
-  return _Chunk.list('sfbk', _chunks(bytes, 12, end));
-}
-
-/// The bytes of the bank [bank] (a `RIFF sfbk`), in one buffer; the data
-/// of a reserved chunk left zero, its offset given to [onReserved].
-Uint8List _writeBank(_Chunk bank, {void Function(int offset)? onReserved}) {
-  var bytes = Uint8List(8 + bank.size);
-  var data = ByteData.sublistView(bytes);
-  var at = 0;
-  void tag(String id) {
-    for (var i = 0; i < 4; i++) {
-      bytes[at + i] = id.codeUnitAt(i);
-    }
-    at += 4;
-  }
-
-  void size(int size) {
-    data.setUint32(at, size, Endian.little);
-    at += 4;
-  }
-
-  void write(_Chunk chunk) {
-    var type = chunk.listType;
-    tag(type == null ? chunk.id : 'LIST');
-    size(chunk.size);
-    if (type != null) {
-      tag(type);
-      chunk.chunks.forEach(write);
-      return;
-    }
-    if (chunk.reserved == null) {
-      bytes.setRange(at, at + chunk.data.length, chunk.data);
-    } else {
-      onReserved?.call(at);
-    }
-    at += _even(chunk._dataSize);
-  }
-
-  tag('RIFF');
-  size(bank.size);
-  tag('sfbk');
-  bank.chunks.forEach(write);
-  return bytes;
-}
-
-/// The sample headers of [bank], the last one the terminal `EOS`.
-ByteData _headers(_Chunk bank) {
-  var shdr = bank.find('pdta')?.find('shdr');
-  if (shdr == null || shdr.data.length < _headerSize) {
-    throw const FormatException('SoundFont: no sample header');
-  }
-  return ByteData.sublistView(shdr.data);
-}
 
 /// True when [bytes] is a SoundFont with compressed samples (an SF3); false
 /// for an SF2 or anything else.
 bool midiSoundFontIsCompressed(Uint8List bytes) {
   try {
-    var headers = _headers(_readBank(bytes));
+    var headers = soundFontSampleHeaders(soundFontReadBank(bytes));
     for (
       var o = 0;
-      o + _headerSize <= headers.lengthInBytes;
-      o += _headerSize
+      o + soundFontHeaderSize <= headers.lengthInBytes;
+      o += soundFontHeaderSize
     ) {
       if (headers.getUint16(o + 44, Endian.little) & midiSampleTypeCompressed !=
           0) {
@@ -190,30 +45,6 @@ bool midiSoundFontIsCompressed(Uint8List bytes) {
   }
   return false;
 }
-
-/// The INFO list of [bank] with its version (`ifil`) set to [major].[minor].
-_Chunk _info(_Chunk bank, int major, int minor) {
-  var ifil = ByteData(4)
-    ..setUint16(0, major, Endian.little)
-    ..setUint16(2, minor, Endian.little);
-  var info = bank.find('INFO');
-  return _Chunk.list('INFO', [
-    _Chunk('ifil', ifil.buffer.asUint8List()),
-    for (var chunk in info?.chunks ?? const <_Chunk>[])
-      if (chunk.id != 'ifil') chunk,
-  ]);
-}
-
-/// The bank of [info], [smpl] and the pdta of [bank] with [shdr].
-_Chunk _bank(_Chunk bank, _Chunk info, _Chunk smpl, Uint8List shdr) =>
-    _Chunk.list('sfbk', [
-      info,
-      _Chunk.list('sdta', [smpl]),
-      _Chunk.list('pdta', [
-        for (var chunk in bank.find('pdta')!.chunks)
-          if (chunk.id == 'shdr') _Chunk('shdr', shdr) else chunk,
-      ]),
-    ]);
 
 /// Lets the event loop run every [slice] (a page stays responsive).
 class _Slicer {
@@ -249,12 +80,12 @@ Future<Uint8List> midiSoundFontDecompress(
   if (!midiSoundFontIsCompressed(bytes)) {
     return bytes;
   }
-  var bank = _readBank(bytes);
+  var bank = soundFontReadBank(bytes);
   var smpl = bank.find('sdta')?.find('smpl')?.data ?? Uint8List(0);
-  var headers = _headers(bank);
-  var count = headers.lengthInBytes ~/ _headerSize - 1;
+  var headers = soundFontSampleHeaders(bank);
+  var count = headers.lengthInBytes ~/ soundFontHeaderSize - 1;
   var shdr = Uint8List.fromList(
-    Uint8List.sublistView(headers, 0, (count + 1) * _headerSize),
+    Uint8List.sublistView(headers, 0, (count + 1) * soundFontHeaderSize),
   );
   var out = ByteData.sublistView(shdr);
   var slicer = _Slicer(slice);
@@ -262,14 +93,14 @@ Future<Uint8List> midiSoundFontDecompress(
   // The place of each sample in the SF2: its length, its loop points.
   var position = 0;
   for (var i = 0; i < count; i++) {
-    var o = i * _headerSize;
+    var o = i * soundFontHeaderSize;
     var start = headers.getUint32(o + 20, Endian.little);
     var end = headers.getUint32(o + 24, Endian.little);
     var loopStart = headers.getUint32(o + 28, Endian.little);
     var loopEnd = headers.getUint32(o + 32, Endian.little);
     var type = headers.getUint16(o + 44, Endian.little);
     int length;
-    if (type & _sampleTypeRom != 0) {
+    if (type & soundFontSampleTypeRom != 0) {
       length = 0;
     } else if (type & midiSampleTypeCompressed != 0) {
       if (end > smpl.length || start > end) {
@@ -293,14 +124,19 @@ Future<Uint8List> midiSoundFontDecompress(
       ..setUint32(o + 28, position + relativeStart, Endian.little)
       ..setUint32(o + 32, position + relativeEnd, Endian.little)
       ..setUint16(o + 44, type & ~midiSampleTypeCompressed, Endian.little);
-    position += length + _guard;
+    position += length + soundFontGuardFrames;
     await slicer.next();
   }
 
   // The SF2, its frames zero; then each sample decoded in place.
   var framesOffset = 0;
-  var sf2 = _writeBank(
-    _bank(bank, _info(bank, 2, 4), _Chunk.reserved('smpl', position * 2), shdr),
+  var sf2 = soundFontWriteBank(
+    soundFontBankWith(
+      bank,
+      soundFontInfoVersion(bank, 2, 4),
+      SoundFontChunk.reserved('smpl', position * 2),
+      shdr,
+    ),
     onReserved: (offset) => framesOffset = offset,
   );
   // RIFF chunks are even: the frames are aligned.
@@ -308,13 +144,13 @@ Future<Uint8List> midiSoundFontDecompress(
   var source = ByteData.sublistView(smpl);
   var setups = VorbisSetupCache();
   for (var i = 0; i < count; i++) {
-    var o = i * _headerSize;
+    var o = i * soundFontHeaderSize;
     var start = headers.getUint32(o + 20, Endian.little);
     var end = headers.getUint32(o + 24, Endian.little);
     var type = headers.getUint16(o + 44, Endian.little);
     var at = out.getUint32(o + 20, Endian.little);
     var length = out.getUint32(o + 24, Endian.little) - at;
-    if (type & _sampleTypeRom != 0) {
+    if (type & soundFontSampleTypeRom != 0) {
       // Not in the file.
     } else if (type & midiSampleTypeCompressed != 0) {
       var decoded = decodeOggInt16(
@@ -363,26 +199,26 @@ Future<Uint8List> midiSoundFontCompress(
   if (midiSoundFontIsCompressed(bytes)) {
     throw const FormatException('already compressed (SF3)');
   }
-  var bank = _readBank(bytes);
+  var bank = soundFontReadBank(bytes);
   var smpl = bank.find('sdta')?.find('smpl')?.data ?? Uint8List(0);
   var samples = _frames(smpl, 0, smpl.length ~/ 2);
-  var headers = _headers(bank);
-  var count = headers.lengthInBytes ~/ _headerSize - 1;
+  var headers = soundFontSampleHeaders(bank);
+  var count = headers.lengthInBytes ~/ soundFontHeaderSize - 1;
   var shdr = Uint8List.fromList(
-    Uint8List.sublistView(headers, 0, (count + 1) * _headerSize),
+    Uint8List.sublistView(headers, 0, (count + 1) * soundFontHeaderSize),
   );
   var out = ByteData.sublistView(shdr);
   var streams = BytesBuilder(copy: false);
   var offset = 0;
   for (var i = 0; i < count; i++) {
-    var o = i * _headerSize;
+    var o = i * soundFontHeaderSize;
     var start = headers.getUint32(o + 20, Endian.little);
     var end = headers.getUint32(o + 24, Endian.little);
     var loopStart = headers.getUint32(o + 28, Endian.little);
     var loopEnd = headers.getUint32(o + 32, Endian.little);
     var rate = headers.getUint32(o + 36, Endian.little);
     var type = headers.getUint16(o + 44, Endian.little);
-    if (type & _sampleTypeRom != 0) {
+    if (type & soundFontSampleTypeRom != 0) {
       throw FormatException('sample $i is in ROM, not in the file');
     }
     if (end > samples.length || start > end) {
@@ -407,8 +243,13 @@ Future<Uint8List> midiSoundFontCompress(
     offset += ogg.length;
     onProgress?.call(i + 1, count);
   }
-  return _writeBank(
-    _bank(bank, _info(bank, 3, 0), _Chunk('smpl', streams.takeBytes()), shdr),
+  return soundFontWriteBank(
+    soundFontBankWith(
+      bank,
+      soundFontInfoVersion(bank, 3, 0),
+      SoundFontChunk('smpl', streams.takeBytes()),
+      shdr,
+    ),
   );
 }
 
@@ -418,12 +259,12 @@ Future<Uint8List> midiSoundFontCompress(
 /// it), its rate, its type. None when [b] is [a] compressed then
 /// decompressed.
 List<String> midiSoundFontSampleDifferences(Uint8List a, Uint8List b) {
-  var first = _headers(_readBank(a));
-  var second = _headers(_readBank(b));
+  var first = soundFontSampleHeaders(soundFontReadBank(a));
+  var second = soundFontSampleHeaders(soundFontReadBank(b));
   if (first.lengthInBytes != second.lengthInBytes) {
     var counts = [
       for (var headers in [first, second])
-        headers.lengthInBytes ~/ _headerSize - 1,
+        headers.lengthInBytes ~/ soundFontHeaderSize - 1,
     ];
     return ['samples: ${counts.first} vs ${counts.last}'];
   }
@@ -446,8 +287,12 @@ List<String> midiSoundFontSampleDifferences(Uint8List a, Uint8List b) {
   }
 
   var differences = <String>[];
-  for (var o = 0; o + _headerSize < first.lengthInBytes; o += _headerSize) {
-    var i = o ~/ _headerSize;
+  for (
+    var o = 0;
+    o + soundFontHeaderSize < first.lengthInBytes;
+    o += soundFontHeaderSize
+  ) {
+    var i = o ~/ soundFontHeaderSize;
     var (nameA, nameB) = (name(first, o), name(second, o));
     var (shapeA, shapeB) = (shape(first, o), shape(second, o));
     if (nameA != nameB || '$shapeA' != '$shapeB') {
@@ -465,20 +310,20 @@ List<String> midiSoundFontSampleDifferences(Uint8List a, Uint8List b) {
 /// a compression lost. Infinite for a sample unchanged; 0 for a silent one
 /// or when the samples differ in number or length.
 List<double> midiSoundFontSampleSnr(Uint8List a, Uint8List b) {
-  var bankA = _readBank(a);
-  var bankB = _readBank(b);
-  var first = _headers(bankA);
-  var second = _headers(bankB);
+  var bankA = soundFontReadBank(a);
+  var bankB = soundFontReadBank(b);
+  var first = soundFontSampleHeaders(bankA);
+  var second = soundFontSampleHeaders(bankB);
   var smplA = bankA.find('sdta')?.find('smpl')?.data ?? Uint8List(0);
   var smplB = bankB.find('sdta')?.find('smpl')?.data ?? Uint8List(0);
   var dataA = ByteData.sublistView(smplA);
   var dataB = ByteData.sublistView(smplB);
-  var count = first.lengthInBytes ~/ _headerSize - 1;
+  var count = first.lengthInBytes ~/ soundFontHeaderSize - 1;
   return [
     for (var i = 0; i < count; i++)
       () {
-        var o = i * _headerSize;
-        if (o + _headerSize > second.lengthInBytes) {
+        var o = i * soundFontHeaderSize;
+        if (o + soundFontHeaderSize > second.lengthInBytes) {
           return 0.0;
         }
         var startA = first.getUint32(o + 20, Endian.little);

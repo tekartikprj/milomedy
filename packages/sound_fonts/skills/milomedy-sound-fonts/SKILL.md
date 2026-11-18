@@ -8,7 +8,9 @@ description: >-
   git blob checks, midiGeneralUserGs and midiGeneralUserGsSf3 (a hosted copy,
   its licence), SF3 turned into SF2 (midiSoundFontDecompress, in a web
   worker with midiSoundFontWorkerDecompressor and setupMidiSoundFontWorker)
-  or made with ffmpeg (midiSoundFontCompress), the catalog
+  or kept as SF3 and played per song (keepCompressed, presets(id),
+  MidiSoundFontSampler, midiSoundFontSampler, samplesOf, soundFont,
+  MidiSoundFontDefinition, midiSoundFontNotes), or made with ffmpeg (midiSoundFontCompress), the catalog
   (compressedSoundFonts, sameAs), the built-in 'tiny' fallback, and testing
   with a memory file system and an http MockClient.
 ---
@@ -92,6 +94,21 @@ or imports, stored through `fs_shim` as `<id>.sf2` files next to an
   from a tool; git ignore it). Missing, the SF3 is decompressed in the page
   (a console warning). A worker failure (`MidiSoundFontWorkerException`)
   keeps the downloaded file for the next try.
+* Better than unpacking: keep the SF3 and play it per song.
+  `MidiSoundFontLibrary(..., keepCompressed: true)` stores a downloaded or
+  imported SF3 as it is (`entry.compressed`, `read` gives the SF3,
+  `presets(id)` reads the presets without decoding; an SF2 stays an SF2, an
+  SF3 unpacked before is found again). Then, for the session,
+  `var sampler = await midiSoundFontSampler(await library.read(id))` (a web
+  worker of its own on the web, the bytes moved to it; io: here), and for
+  each song `sampler.soundFont(sampler.samplesOf(timeline, margin: 12))`:
+  an SF2 with the whole definition and that song's samples only (1 to 3 MB
+  for GeneralUser GS instead of 32), given to the engine with
+  `loadSoundFont(id, bytes, transfer: true)`. `samplesOf` follows the bank
+  and program changes of the timeline as the synth does; `margin` covers
+  the transpositions offered (an instrument chosen later needs its samples
+  added: call it again and load the union). Never decode an SF3 in the
+  AudioWorklet: the sampler does it in its worker.
 * A catalog lists the SF3 sources apart (`"compressedSoundFonts": [...]`,
   read first): an app built before SF3 reads `soundFonts` only and never
   offers one. `sameAs` (an id) links the SF2 and the SF3 of the same bank

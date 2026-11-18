@@ -1,7 +1,8 @@
 /// The SoundFont library: the SoundFonts downloaded or imported, stored
 /// through fs_shim (files on io, IndexedDB on the web) with a JSON index,
 /// the default one, and a built-in fallback. An SF3 (compressed samples) is
-/// stored as the SF2 it stands for, turned once when added.
+/// stored as the SF2 it stands for, turned once when added, or kept as it
+/// is (`keepCompressed`), played per song.
 library;
 
 import 'dart:async';
@@ -13,6 +14,7 @@ import 'package:fs_shim/fs_shim.dart';
 import 'package:http/http.dart' as http;
 import 'package:milomedy_midi_synth_sf2/midi_synth_sf2.dart';
 
+import 'definition.dart';
 import 'sf3.dart';
 import 'source.dart';
 import 'worker/decompressor.dart';
@@ -56,6 +58,10 @@ class MidiSoundFontEntry {
   /// True for the built-in fallback, always there.
   final bool builtIn;
 
+  /// True for an SF3 kept as it is (`keepCompressed`): its bytes are the
+  /// SF3, played per song (`MidiSoundFontSampler`), not loaded whole.
+  final bool compressed;
+
   /// An entry.
   const MidiSoundFontEntry({
     required this.id,
@@ -70,6 +76,7 @@ class MidiSoundFontEntry {
     this.url,
     this.licence,
     this.builtIn = false,
+    this.compressed = false,
   });
 
   factory MidiSoundFontEntry._fromMap(Map<String, Object?> map) =>
@@ -85,6 +92,7 @@ class MidiSoundFontEntry {
         comments: map['comments'] as String? ?? '',
         url: map['url'] as String?,
         licence: map['licence'] as String?,
+        compressed: map['compressed'] as bool? ?? false,
       );
 
   Map<String, Object?> _toMap() => {
@@ -99,6 +107,7 @@ class MidiSoundFontEntry {
     if (comments.isNotEmpty) 'comments': comments,
     'url': ?url,
     'licence': ?licence,
+    if (compressed) 'compressed': true,
   };
 
   @override
@@ -185,6 +194,13 @@ class MidiSoundFontLibrary {
   /// Turns an SF3 into its SF2 (on import and download).
   final MidiSoundFontDecompressor _decompress;
 
+  /// True to keep an SF3 downloaded or imported as it is (9 MB instead of
+  /// 32 for GeneralUser GS, no unpacking): its entry is
+  /// [MidiSoundFontEntry.compressed], played per song by a
+  /// `MidiSoundFontSampler`. False to turn it into the SF2 it stands for,
+  /// loaded whole (the apps before).
+  final bool keepCompressed;
+
   // No future is kept once complete: one complete calls back through the
   // zone it was made in, a library used in two zones (the real and the fake
   // async ones of a widget test) would wait for the other one.
@@ -202,12 +218,14 @@ class MidiSoundFontLibrary {
   /// A library in [path] of [fileSystem] (`fileSystemDefault` of fs_shim:
   /// files on io, IndexedDB on the web), downloading with [client]; an SF3
   /// turned into its SF2 by [decompress] (`midiSoundFontDecompress` here by
-  /// default, `midiSoundFontWorkerDecompressor()` in a web worker).
+  /// default, `midiSoundFontWorkerDecompressor()` in a web worker), unless
+  /// [keepCompressed].
   MidiSoundFontLibrary({
     required this.fileSystem,
     required this.path,
     this._client,
     MidiSoundFontDecompressor? decompress,
+    this.keepCompressed = false,
   }) : _decompress = decompress ?? midiSoundFontDecompress;
 
   static final _builtIn = () {
@@ -226,8 +244,9 @@ class MidiSoundFontLibrary {
   File get _indexFile =>
       fileSystem.file(fileSystem.path.join(path, 'index.json'));
 
-  File _file(String id) =>
-      fileSystem.file(fileSystem.path.join(path, '$id.sf2'));
+  File _file(String id, {bool compressed = false}) => fileSystem.file(
+    fileSystem.path.join(path, compressed ? '$id.sf3' : '$id.sf2'),
+  );
 
   /// The index, read once (two first reads at once share it, a failed read
   /// is tried again next time).
@@ -294,16 +313,23 @@ class MidiSoundFontLibrary {
   Future<MidiSoundFontEntry?> entry(String id) async =>
       (await list()).where((entry) => entry.id == id).firstOrNull;
 
-  /// The bytes of SoundFont [id].
+  /// The bytes of SoundFont [id]: an SF2, or the SF3 of a
+  /// [MidiSoundFontEntry.compressed] one.
   Future<Uint8List> read(String id) async {
     if (id == builtInId) {
       return midiTinySoundFontBytes();
     }
-    if (await entry(id) == null) {
+    var found = await entry(id);
+    if (found == null) {
       throw ArgumentError.value(id, 'id', 'not in the library');
     }
-    return _file(id).readAsBytes();
+    return _file(id, compressed: found.compressed).readAsBytes();
   }
+
+  /// The presets of SoundFont [id], by bank then program: its definition
+  /// read, not its samples (an SF3 is not decoded).
+  Future<List<MidiSoundFontPreset>> presets(String id) async =>
+      MidiSoundFontDefinition.fromBytes(await read(id)).presets;
 
   /// The id of the default SoundFont: the one set, or the built-in one.
   Future<String> defaultId() async =>
@@ -330,6 +356,7 @@ class MidiSoundFontLibrary {
     MidiSoundFontSource? source,
     Uri? url,
     String? originalSha256,
+    bool compressed = false,
   }) => _change(
     () => _addNow(
       bytes,
@@ -338,6 +365,7 @@ class MidiSoundFontLibrary {
       source: source,
       url: url,
       originalSha256: originalSha256,
+      compressed: compressed,
     ),
   );
 
@@ -348,8 +376,12 @@ class MidiSoundFontLibrary {
     MidiSoundFontSource? source,
     Uri? url,
     String? originalSha256,
+    required bool compressed,
   }) async {
-    var soundFont = MidiSoundFont.fromBytes(bytes);
+    // An SF3 kept: its definition read (its samples decode when played).
+    var soundFont = compressed
+        ? _Info.ofDefinition(MidiSoundFontDefinition.fromBytes(bytes))
+        : _Info.ofSoundFont(MidiSoundFont.fromBytes(bytes));
     var hash = sha256.convert(bytes).toString();
     for (var entry in await list()) {
       if (entry.sha256 == hash) {
@@ -367,7 +399,7 @@ class MidiSoundFontLibrary {
       id: unique,
       name: name ?? soundFont.name,
       size: bytes.length,
-      presetCount: soundFont.presets.length,
+      presetCount: soundFont.presetCount,
       sha256: hash,
       originalSha256: originalSha256,
       copyright: soundFont.copyright,
@@ -375,9 +407,10 @@ class MidiSoundFontLibrary {
       comments: soundFont.comments,
       url: (url ?? source?.url)?.toString(),
       licence: source?.licence,
+      compressed: compressed,
     );
     await fileSystem.directory(path).create(recursive: true);
-    await _file(unique).writeAsBytes(bytes);
+    await _file(unique, compressed: compressed).writeAsBytes(bytes);
     index['soundFonts'] = [
       for (var entry in entries) entry._toMap(),
       entry._toMap(),
@@ -389,7 +422,8 @@ class MidiSoundFontLibrary {
   /// Imports the SoundFont [bytes] (a file picked, dropped, fetched), named
   /// [name] (its INFO name by default). An SF3 is turned into the SF2 it
   /// stands for first (a few seconds: [onUnpack] tells its samples done out
-  /// of all), unless that file is in the library already.
+  /// of all), unless that file is in the library already; kept as it is
+  /// when [keepCompressed].
   Future<MidiSoundFontEntry> import(
     Uint8List bytes, {
     String? name,
@@ -401,6 +435,14 @@ class MidiSoundFontLibrary {
       var known = await _fromOriginal(originalSha256);
       if (known != null) {
         return known;
+      }
+      if (keepCompressed) {
+        return _add(
+          bytes,
+          id: _slug(name ?? MidiSoundFontDefinition.fromBytes(bytes).name),
+          name: name,
+          compressed: true,
+        );
       }
       bytes = await _decompress(bytes, onProgress: onUnpack);
     }
@@ -494,7 +536,8 @@ class MidiSoundFontLibrary {
         MidiSoundFontEntry entry;
         try {
           String? originalSha256;
-          if (midiSoundFontIsCompressed(bytes)) {
+          var compressed = midiSoundFontIsCompressed(bytes);
+          if (compressed && !keepCompressed) {
             originalSha256 = sha256.convert(bytes).toString();
             bytes = await _decompress(bytes, onProgress: onUnpack);
           }
@@ -505,6 +548,7 @@ class MidiSoundFontLibrary {
             source: source,
             url: url,
             originalSha256: originalSha256,
+            compressed: compressed && keepCompressed,
           );
         } on MidiSoundFontWorkerException {
           // The worker failed (out of memory?), not the file: kept, the
@@ -710,9 +754,10 @@ class MidiSoundFontLibrary {
         index.remove('default');
       }
       await _save(index);
-      var file = _file(id);
-      if (await file.exists()) {
-        await file.delete();
+      for (var file in [_file(id), _file(id, compressed: true)]) {
+        if (await file.exists()) {
+          await file.delete();
+        }
       }
     });
   }
@@ -736,6 +781,30 @@ String _gitBlobSha1(Uint8List bytes) {
     ..add(bytes)
     ..close();
   return digest.value.toString();
+}
+
+/// What an entry keeps of a SoundFont, read whole (an SF2) or from its
+/// definition (an SF3 kept).
+class _Info {
+  final String name;
+  final int presetCount;
+  final String copyright;
+  final String author;
+  final String comments;
+
+  _Info.ofSoundFont(MidiSoundFont soundFont)
+    : name = soundFont.name,
+      presetCount = soundFont.presets.length,
+      copyright = soundFont.copyright,
+      author = soundFont.author,
+      comments = soundFont.comments;
+
+  _Info.ofDefinition(MidiSoundFontDefinition definition)
+    : name = definition.name,
+      presetCount = definition.presets.length,
+      copyright = definition.copyright,
+      author = definition.author,
+      comments = definition.comments;
 }
 
 class _DigestSink implements Sink<Digest> {

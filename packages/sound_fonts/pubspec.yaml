@@ -18,6 +18,15 @@ dependencies:
     git:
       url: https://github.com/tekartikprj/milomedy
       path: packages/midi_synth_sf2
+  # The notes of a timeline, the samples they play (definition.dart).
+  milomedy_midi_engine:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_engine
+  milomedy_midi_synth:
+    git:
+      url: https://github.com/tekartikprj/milomedy
+      path: packages/midi_synth
   # sf3_ffmpeg.dart (io, tools): the temporary files, ffmpeg.
   path: ">=1.9.0"
   process_run: ">=1.2.0"
@@ -36,6 +45,8 @@ dependencies:
 
 dev_dependencies:
   args: ">=2.7.0"
+  # The tests check the samples found against the synth's own lookup.
+  dart_melty_soundfont: ">=2.0.0"
   build_runner: ">=2.15.0"
   build_web_compilers: ">=4.7.0"
   # A test: the library used in the fake async zone of a widget test.
